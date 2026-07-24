@@ -221,6 +221,7 @@ export const db = {
         batteryHealth: p.battery_health || undefined,
         warranty: p.warranty || "No Warranty",
         condition: Array.isArray(p.condition_tags) ? p.condition_tags : [],
+        imei: p.imei || undefined,
         productVideo: p.video_url || undefined,
         productImages: Array.isArray(p.image_urls) ? p.image_urls : [],
         thumbnailUrl: p.thumbnail_url || undefined,
@@ -265,6 +266,7 @@ export const db = {
         batteryHealth: p.battery_health || undefined,
         warranty: p.warranty || "No Warranty",
         condition: Array.isArray(p.condition_tags) ? p.condition_tags : [],
+        imei: p.imei || undefined,
         productVideo: p.video_url || undefined,
         productImages: Array.isArray(p.image_urls) ? p.image_urls : [],
         thumbnailUrl: p.thumbnail_url || undefined,
@@ -291,6 +293,7 @@ export const db = {
       battery_health: product.batteryHealth || null,
       warranty: product.warranty,
       condition_tags: product.condition || [],
+      imei: product.imei || null,
       price: product.sellingPrice,
       quantity: product.quantity,
       video_url: product.productVideo || null,
@@ -340,6 +343,7 @@ export const db = {
       batteryHealth: resultData.battery_health || undefined,
       warranty: resultData.warranty || "No Warranty",
       condition: Array.isArray(resultData.condition_tags) ? resultData.condition_tags : [],
+      imei: resultData.imei || undefined,
       productVideo: resultData.video_url || undefined,
       productImages: Array.isArray(resultData.image_urls) ? resultData.image_urls : [],
       thumbnailUrl: resultData.thumbnail_url || undefined,
@@ -397,12 +401,13 @@ export const db = {
           quantity: s.quantity || 1,
           unitPrice: Number(s.selling_price || 0),
           totalAmount: Number(s.selling_price || 0) * (s.quantity || 1),
-          paymentMethod: "Transfer",
+          paymentMethod: (s.payment_method as Sale["paymentMethod"]) || "Transfer",
+          splitDetails: s.split_details || undefined,
           customerName: custName,
           customerPhone: custPhone,
           soldBy: s.sold_by || "Owner",
           createdAt: s.created_at,
-          status: "Completed"
+          status: (s.status as Sale["status"]) || "Completed"
         };
       });
     } catch (err) {
@@ -420,13 +425,18 @@ export const db = {
     soldBy: string;
     customerName: string;
     customerPhone: string;
+    paymentMethod?: Sale["paymentMethod"];
+    splitDetails?: Sale["splitDetails"];
   }): Promise<Sale> => {
+    const paymentMethod = sale.paymentMethod || "Transfer";
+    const splitDetails = sale.splitDetails || null;
+
     // 1. Check or create customer
     let customerId: string | null = null;
     if (sale.customerPhone.trim()) {
       const { data: existingCust } = await supabase
         .from("customers")
-        .select("id, total_spent")
+        .select("id, total_spent, purchase_count")
         .eq("shop_id", sale.shop_id)
         .eq("phone_number", sale.customerPhone.trim())
         .maybeSingle();
@@ -434,9 +444,10 @@ export const db = {
       if (existingCust) {
         customerId = existingCust.id;
         const newTotalSpent = Number(existingCust.total_spent || 0) + (sale.sellingPrice * sale.quantity);
+        const newPurchaseCount = Number(existingCust.purchase_count || 1) + 1;
         await supabase
           .from("customers")
-          .update({ total_spent: newTotalSpent })
+          .update({ total_spent: newTotalSpent, purchase_count: newPurchaseCount })
           .eq("id", customerId);
       } else {
         const { data: newCust } = await supabase
@@ -446,6 +457,7 @@ export const db = {
             full_name: sale.customerName || "Walk-in Customer",
             phone_number: sale.customerPhone.trim(),
             total_spent: sale.sellingPrice * sale.quantity,
+            purchase_count: 1,
             notes: `Bought ${sale.productName || "Product"}`
           }])
           .select()
@@ -464,6 +476,9 @@ export const db = {
         customer_id: customerId,
         quantity: sale.quantity,
         selling_price: sale.sellingPrice,
+        payment_method: paymentMethod,
+        split_details: splitDetails,
+        status: "Completed",
         sold_by: sale.soldBy || "Owner"
       }])
       .select()
@@ -502,7 +517,8 @@ export const db = {
       quantity: saleData.quantity,
       unitPrice: Number(saleData.selling_price),
       totalAmount: Number(saleData.selling_price) * saleData.quantity,
-      paymentMethod: "Transfer",
+      paymentMethod: paymentMethod,
+      splitDetails: splitDetails || undefined,
       customerName: sale.customerName,
       customerPhone: sale.customerPhone,
       soldBy: saleData.sold_by,
@@ -531,7 +547,7 @@ export const db = {
         shop_id: c.shop_id,
         name: c.full_name,
         phoneNumber: c.phone_number,
-        purchaseCount: 1,
+        purchaseCount: Number(c.purchase_count || 1),
         totalSpent: Number(c.total_spent || 0),
         notes: c.notes || "",
         createdAt: c.created_at
@@ -548,7 +564,8 @@ export const db = {
       full_name: customer.name,
       phone_number: customer.phoneNumber,
       notes: customer.notes || "",
-      total_spent: customer.totalSpent || 0
+      total_spent: customer.totalSpent || 0,
+      purchase_count: customer.purchaseCount || 1
     };
 
     if (customer.id && !customer.id.startsWith("cust-")) {
@@ -566,7 +583,7 @@ export const db = {
         shop_id: data.shop_id,
         name: data.full_name,
         phoneNumber: data.phone_number,
-        purchaseCount: 1,
+        purchaseCount: Number(data.purchase_count || 1),
         totalSpent: Number(data.total_spent || 0),
         notes: data.notes || "",
         createdAt: data.created_at
@@ -585,12 +602,74 @@ export const db = {
         shop_id: data.shop_id,
         name: data.full_name,
         phoneNumber: data.phone_number,
-        purchaseCount: 1,
+        purchaseCount: Number(data.purchase_count || 1),
         totalSpent: Number(data.total_spent || 0),
         notes: data.notes || "",
         createdAt: data.created_at
       };
     }
+  },
+
+  // ------------------- SALE REVERSAL -------------------
+  reverseSale: async (shopId: string, saleId: string): Promise<void> => {
+    // 1. Fetch the sale record
+    const { data: sale, error: saleErr } = await supabase
+      .from("sales")
+      .select("id, product_id, customer_id, quantity, selling_price, status")
+      .eq("id", saleId)
+      .eq("shop_id", shopId)
+      .maybeSingle();
+
+    if (saleErr || !sale) throw new Error("Sale not found");
+    if (sale.status === "Reversed") throw new Error("Sale already reversed");
+
+    // 2. Restore product stock
+    if (sale.product_id) {
+      const { data: prod } = await supabase
+        .from("products")
+        .select("quantity, status")
+        .eq("id", sale.product_id)
+        .maybeSingle();
+
+      if (prod) {
+        const restoredQty = (prod.quantity || 0) + (sale.quantity || 1);
+        const restoredStatus = restoredQty > 0 ? "Available" : "Out of Stock";
+        await supabase
+          .from("products")
+          .update({ quantity: restoredQty, status: restoredStatus })
+          .eq("id", sale.product_id);
+      }
+    }
+
+    // 3. Adjust customer total_spent and purchase_count
+    if (sale.customer_id) {
+      const { data: cust } = await supabase
+        .from("customers")
+        .select("total_spent, purchase_count")
+        .eq("id", sale.customer_id)
+        .maybeSingle();
+
+      if (cust) {
+        const refundAmount = Number(sale.selling_price || 0) * (sale.quantity || 1);
+        const newTotalSpent = Math.max(0, Number(cust.total_spent || 0) - refundAmount);
+        const newPurchaseCount = Math.max(0, Number(cust.purchase_count || 1) - 1);
+        await supabase
+          .from("customers")
+          .update({ total_spent: newTotalSpent, purchase_count: newPurchaseCount })
+          .eq("id", sale.customer_id);
+      }
+    }
+
+    // 4. Mark sale as reversed
+    const { error: updateErr } = await supabase
+      .from("sales")
+      .update({ status: "Reversed" })
+      .eq("id", saleId)
+      .eq("shop_id", shopId);
+
+    if (updateErr) throw new Error(`Failed to reverse sale: ${updateErr.message}`);
+
+    notifyListeners();
   },
 
   // ------------------- STAFF -------------------

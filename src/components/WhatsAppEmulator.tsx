@@ -9,6 +9,7 @@ import {
 import { DEVICE_DATABASE, CATEGORY_BRANDS, parseShortenedPriceToNumber, getCategoryQuickTags, getCategoryPlaceholder, WARRANTY_OPTIONS } from "../lib/deviceDb";
 import { db } from "../lib/database";
 import { uploadFileToSupabase } from "../lib/supabase";
+import { createProduct, updateProduct, deleteProduct, duplicateProduct, recordSale, reverseSale, canPerform, logAction } from "../lib/services";
 import { VideoPlayerModal } from "./VideoPlayerModal";
 import { ImageGalleryModal } from "./ImageGalleryModal";
 
@@ -17,9 +18,9 @@ interface WhatsAppEmulatorProps {
   products: Product[];
   sales: Sale[];
   staffList: Staff[];
-  onSaveProduct: (p: Product) => void;
+  auditLogsData?: AuditLog[];
   onSaveSale: (s: Sale) => void;
-  onUndoLastSale: (shopId: string, saleId: string, performer: string) => { success: boolean; message: string };
+  onUndoLastSale: (shopId: string, saleId: string, performer: string) => Promise<{ success: boolean; message: string }>;
   isExpired: boolean;
 }
 
@@ -57,7 +58,7 @@ export default function WhatsAppEmulator({
   products,
   sales,
   staffList,
-  onSaveProduct,
+  auditLogsData,
   onSaveSale,
   onUndoLastSale,
   isExpired
@@ -617,8 +618,7 @@ Confirm to commit this product directly to your database:`;
         addMessagePair(text, `❌ ${permissionRejectedMessage}`);
         return;
       }
-      const liveProducts = db.getProducts(shopId);
-      const available = liveProducts.filter(p => p.quantity > 0 && p.status === "Available");
+      const available = products.filter(p => p.quantity > 0 && p.status === "Available");
       if (available.length === 0) {
         addMessagePair(text, "⚠️ No products currently in stock to sell.");
         return;
@@ -643,8 +643,7 @@ Confirm to commit this product directly to your database:`;
         addMessagePair(text, `❌ ${permissionRejectedMessage}`);
         return;
       }
-      const liveProducts = db.getProducts(shopId);
-      if (liveProducts.length === 0) {
+      if (products.length === 0) {
         addMessagePair(text, "⚠️ No active inventory items found to update.");
         return;
       }
@@ -676,7 +675,7 @@ Confirm to commit this product directly to your database:`;
         addMessagePair(text, "❌ *PERMISSION DENIED*\nOnly the store Owner can audit active staff operations.");
         return;
       }
-      const logs = db.getAuditLogs(shopId);
+      const logs = auditLogsData || [];
       addMessagePair(
         text, 
         "📝 *Store Activity Log Timeline*\nShowing newest staff actions first:",
@@ -774,7 +773,7 @@ Confirm to commit this product directly to your database:`;
   // ----------------------------------------------------
   // ADD PRODUCT WIZARD FLOW STATE MACHINE
   // ----------------------------------------------------
-  const handleAddProductFlow = (text: string, hasPermission: Function, rejection: string) => {
+  const handleAddProductFlow = async (text: string, hasPermission: Function, rejection: string) => {
     if (!hasPermission("addProduct")) {
       setSession({ currentFlow: "none", step: 0, data: {} });
       addBotMessageOnly(`❌ ${rejection}`);
@@ -1150,19 +1149,10 @@ You can upload photos, a video, or both. Tap *Done* when finished, or *Skip* to 
             createdAt: new Date().toISOString()
           };
 
-          // 1. Save directly to real database
-          onSaveProduct(newProduct);
+          // 1. Save directly to real database via shared service
+          await createProduct(newProduct, { shopId, userId: senderPhone, userName: senderName });
 
-          // 2. Track Audit logs
-          db.addAuditLog(
-            shopId,
-            senderName,
-            senderPhone,
-            "WhatsApp Stock Uploaded",
-            `Committed product: ${newProduct.brand} ${newProduct.model} (${newProduct.storage}) @ ₦${newProduct.sellingPrice.toLocaleString()}`
-          );
-
-          // 3. Add System notifications
+          // 2. Add System notification
           db.addNotification(
             shopId,
             "WhatsApp Stock Intake Added",
@@ -1170,10 +1160,10 @@ You can upload photos, a video, or both. Tap *Done* when finished, or *Skip* to 
             "success"
           );
 
-          // 4. DELETE ASSISTANT DRAFT IMMEDIATELY! (Guarantees completed product never reopens as draft)
+          // 3. DELETE ASSISTANT DRAFT IMMEDIATELY!
           clearAssistantDraft();
 
-          // 5. Reset wizard state
+          // 4. Reset wizard state
           setSession({ currentFlow: "none", step: 0, data: {} });
           resetMediaUploadStates();
 
@@ -1217,10 +1207,9 @@ You can upload photos, a video, or both. Tap *Done* when finished, or *Skip* to 
       }
 
       const idx = parseInt(text) - 1;
-      const liveProducts = db.getProducts(shopId);
       const inStock = data.list && data.list.length > 0
         ? data.list
-        : liveProducts.filter(p => p.quantity > 0 && p.status === "Available");
+        : products.filter(p => p.quantity > 0 && p.status === "Available");
 
       if (isNaN(idx) || idx < 0 || idx >= inStock.length) {
         addBotMessageOnly(`⚠️ Invalid index choice. Enter a number between 1 and ${inStock.length}:`);
@@ -1247,8 +1236,7 @@ Do you want to continue recording the sale?`;
     // Step 1.5: Free-text Search Filter for product
     if (step === 15) {
       const query = text.toLowerCase().trim();
-      const liveProducts = db.getProducts(shopId);
-      const matches = liveProducts.filter(p => p.quantity > 0 && p.status === "Available" && (
+      const matches = products.filter(p => p.quantity > 0 && p.status === "Available" && (
         p.brand.toLowerCase().includes(query) || 
         p.model.toLowerCase().includes(query) ||
         p.storage.toLowerCase().includes(query) ||
@@ -1341,21 +1329,24 @@ Do you want to continue recording the sale?`;
       createdAt: new Date().toISOString()
     };
 
-    onSaveSale(saleObj);
+    // 1. Record sale via shared service (handles stock decrement, customer upsert, audit log)
+    recordSale(
+      {
+        shop_id: shopId,
+        productId: prod.id,
+        productName: `${prod.brand} ${prod.model} (${prod.storage})`,
+        quantity: 1,
+        sellingPrice: prod.sellingPrice,
+        soldBy: senderName,
+        customerName: data.customerName,
+        customerPhone: data.customerPhone,
+        paymentMethod: data.payMethod,
+        splitDetails: data.splitDesc || undefined,
+      },
+      { shopId, userId: senderPhone, userName: senderName }
+    );
 
-    // 2. Decrement or update the product inventory quantity
-    const updatedQty = Math.max(0, prod.quantity - 1);
-    const updatedProd: Product = {
-      ...prod,
-      quantity: updatedQty,
-      status: updatedQty === 0 ? "Sold Out" : "Available"
-    };
-    onSaveProduct(updatedProd);
-
-    // 3. Clear session
-    setSession({ currentFlow: "none", step: 0, data: {} });
-
-    // 4. Trigger persistent shop alerts and audit trails
+    // 2. Add notification
     db.addNotification(
       shopId,
       "Staff Logged Sale via WhatsApp",
@@ -1363,31 +1354,8 @@ Do you want to continue recording the sale?`;
       "success"
     );
 
-    db.addAuditLog(
-      shopId,
-      senderName,
-      senderPhone,
-      "WhatsApp Sale Recorded",
-      `Walk-in Sale invoice registered: ${saleObj.id} for ${prod.brand} ${prod.model}`
-    );
-
-    // Add customer walk-in ledger if not already there
-    const existingCustomers = db.getCustomers(shopId);
-    const customerExists = existingCustomers.find(
-      c => c.phoneNumber.replace(/\D/g, "") === data.customerPhone.replace(/\D/g, "")
-    );
-    if (!customerExists && data.customerPhone !== "N/A") {
-      const newCust: Customer = {
-        id: `cust-${Date.now()}`,
-        shop_id: shopId,
-        name: data.customerName,
-        phoneNumber: data.customerPhone,
-        purchaseCount: 1,
-        totalSpent: totalAmount,
-        notes: "Registered via WhatsApp Sale transaction"
-      };
-      db.saveCustomer(newCust);
-    }
+    // 3. Clear session
+    setSession({ currentFlow: "none", step: 0, data: {} });
 
     const receiptMsg = `🎉 *WALK-IN SALE REGISTERED*
 
@@ -1421,8 +1389,7 @@ Ledger updated instantly. Product stock decreased.`;
     // Step 1: Perform query search
     if (step === 1) {
       const keyword = text.toLowerCase().trim();
-      const liveProducts = db.getProducts(shopId);
-      const matches = liveProducts.filter(p => 
+      const matches = products.filter(p => 
         p.brand.toLowerCase().includes(keyword) || 
         p.model.toLowerCase().includes(keyword) ||
         p.storage.toLowerCase().includes(keyword) ||
@@ -1524,8 +1491,7 @@ _Message us now to reserve this device in stock!_`;
 
     // Step 1: Search-First Flow
     if (step === 1) {
-      const liveProducts = db.getProducts(shopId);
-      const matches = liveProducts.filter(p => 
+      const matches = products.filter(p => 
         p.brand.toLowerCase().includes(textLower) || 
         p.model.toLowerCase().includes(textLower) ||
         p.id.toLowerCase().includes(textLower) ||
@@ -1599,13 +1565,12 @@ _Message us now to reserve this device in stock!_`;
         setSession({ currentFlow: "update_product", step: 41, data });
         addBotMessageOnly(`Editing Quick Tags for *${p.brand} ${p.model}*.\n\nSelect a tag to toggle/add:`);
       } else if (choice.includes("delete")) {
-        // Direct delete operation
-        db.deleteProduct(shopId, p.id);
-        db.addAuditLog(shopId, senderName, senderPhone, "Product Removed", `Deleted ${p.brand} ${p.model} (${p.storage}) via WhatsApp.`);
+        // Direct delete operation via shared service
+        deleteProduct(p.id, `${p.brand} ${p.model} (${p.storage})`, { shopId, userId: senderPhone, userName: senderName });
         setSession({ currentFlow: "none", step: 0, data: {} });
         addBotMessageOnly(`🗑️ *PRODUCT REMOVED SUCCESSFUL*\n\nDeleted product line *${p.brand} ${p.model}* from catalog database.`);
       } else if (choice.includes("duplicate")) {
-        // Direct duplicate operation
+        // Direct duplicate operation via shared service
         const dupe: Product = {
           ...p,
           id: `prod-${Date.now()}`,
@@ -1614,8 +1579,7 @@ _Message us now to reserve this device in stock!_`;
           status: "Available",
           createdAt: new Date().toISOString()
         };
-        onSaveProduct(dupe);
-        db.addAuditLog(shopId, senderName, senderPhone, "Product Duplicated", `Duplicated ${p.brand} ${p.model} via WhatsApp.`);
+        duplicateProduct(dupe, { shopId, userId: senderPhone, userName: senderName });
         setSession({ currentFlow: "none", step: 0, data: {} });
         addBotMessageOnly(`📋 *PRODUCT DUPLICATED SUCCESSFUL*\n\nCreated identical copy *${dupe.brand} ${dupe.model}* in database.`);
       } else {
@@ -1635,7 +1599,7 @@ _Message us now to reserve this device in stock!_`;
         return;
       }
       const updated = { ...product, sellingPrice: amt };
-      onSaveProduct(updated);
+      updateProduct(updated, { shopId, userId: senderPhone, userName: senderName });
       commitUpdateLogs("Price", `₦${product.sellingPrice.toLocaleString()} -> ₦${amt.toLocaleString()}`);
       return;
     }
@@ -1643,7 +1607,7 @@ _Message us now to reserve this device in stock!_`;
     // 32: Warranty Update
     if (step === 32) {
       const updated = { ...product, warranty: textLower === "skip" ? "No Warranty" : text };
-      onSaveProduct(updated);
+      updateProduct(updated, { shopId, userId: senderPhone, userName: senderName });
       commitUpdateLogs("Warranty Period", `"${product.warranty}" -> "${text}"`);
       return;
     }
@@ -1651,7 +1615,7 @@ _Message us now to reserve this device in stock!_`;
     // 33: Condition Tag Update
     if (step === 33) {
       const updated = { ...product, condition: [text] };
-      onSaveProduct(updated);
+      updateProduct(updated, { shopId, userId: senderPhone, userName: senderName });
       commitUpdateLogs("Condition Tag", `"${product.condition?.join(", ")}" -> "${text}"`);
       return;
     }
@@ -1679,7 +1643,7 @@ _Message us now to reserve this device in stock!_`;
         productVideo: simulatedMedia.startsWith("data:video") || simulatedMedia.endsWith(".mp4") ? simulatedMedia : product.productVideo,
         productImages: simulatedMedia.startsWith("data:image") || !simulatedMedia.endsWith(".mp4") ? [simulatedMedia] : product.productImages
       };
-      onSaveProduct(updated);
+      updateProduct(updated, { shopId, userId: senderPhone, userName: senderName });
       commitUpdateLogs("Media Attachments", "Catalog files updated via WhatsApp emulator.");
       return;
     }
@@ -1688,7 +1652,7 @@ _Message us now to reserve this device in stock!_`;
     if (step === 35) {
       const notes = textLower === "none" || textLower === "skip" ? "" : text;
       const updated = { ...product, variant: notes || undefined };
-      onSaveProduct(updated);
+      updateProduct(updated, { shopId, userId: senderPhone, userName: senderName });
       commitUpdateLogs("Ledger Notes", `Set custom notes to: "${notes}"`);
       return;
     }
@@ -1696,7 +1660,7 @@ _Message us now to reserve this device in stock!_`;
     // 36: Storage Update
     if (step === 36) {
       const updated = { ...product, storage: text };
-      onSaveProduct(updated);
+      updateProduct(updated, { shopId, userId: senderPhone, userName: senderName });
       commitUpdateLogs("Storage", `"${product.storage}" -> "${text}"`);
       return;
     }
@@ -1707,7 +1671,7 @@ _Message us now to reserve this device in stock!_`;
       const ramPart = parts[1] || "";
       const updatedVariant = text + (ramPart ? `, ${ramPart}` : "");
       const updated = { ...product, variant: updatedVariant };
-      onSaveProduct(updated);
+      updateProduct(updated, { shopId, userId: senderPhone, userName: senderName });
       commitUpdateLogs("Color", `Updated color spec to "${text}"`);
       return;
     }
@@ -1718,7 +1682,7 @@ _Message us now to reserve this device in stock!_`;
       const colorPart = parts[0] || "Default";
       const updatedVariant = colorPart + `, ${text} RAM`;
       const updated = { ...product, variant: updatedVariant };
-      onSaveProduct(updated);
+      updateProduct(updated, { shopId, userId: senderPhone, userName: senderName });
       commitUpdateLogs("RAM", `Updated RAM size to "${text}"`);
       return;
     }
@@ -1736,7 +1700,7 @@ _Message us now to reserve this device in stock!_`;
         : [...existing, text];
 
       const updated = { ...product, condition: updatedTags };
-      onSaveProduct(updated);
+      updateProduct(updated, { shopId, userId: senderPhone, userName: senderName });
       data.product = updated;
       setSession({ currentFlow: "update_product", step: 41, data });
       addBotMessageOnly(`Toggled Quick Tag: *"${text}"*\n\nActive tags: ${updatedTags.join(", ") || "None"}\n\nChoose another tag to toggle or select Done:`);
@@ -1755,13 +1719,7 @@ _Message us now to reserve this device in stock!_`;
       "info"
     );
 
-    db.addAuditLog(
-      shopId,
-      senderName,
-      senderPhone,
-      "Product Modified",
-      `WhatsApp edit [${field}] on ${product.brand} ${product.model} (${product.storage}): ${desc}`
-    );
+    logAction({ shopId, userId: senderPhone, userName: senderName }, "Product Modified", `WhatsApp edit [${field}] on ${product.brand} ${product.model} (${product.storage}): ${desc}`);
 
     addBotMessageOnly(`✅ *SPECIFICATION UPDATED SUCCESSFUL*\n\nModified *${field}* for *${product.brand} ${product.model}* successfully:\n${desc}`);
   };
@@ -1860,10 +1818,9 @@ _Message us now to reserve this device in stock!_`;
       let baseOptions: string[] = [];
 
       if (step === 1) {
-        const liveProducts = db.getProducts(shopId);
         const inStock = data.list && data.list.length > 0
           ? data.list
-          : liveProducts.filter(p => p.quantity > 0 && p.status === "Available");
+          : products.filter(p => p.quantity > 0 && p.status === "Available");
         const opts = inStock.slice(0, 5).map((p, idx) => `[${idx + 1}] ${p.brand} ${p.model}`);
         return [...opts, "Search Product", "❌ Cancel"];
       }
@@ -2185,7 +2142,7 @@ _Message us now to reserve this device in stock!_`;
                               {/* Photo / Video preview */}
                               <div className="relative shrink-0">
                                 <img 
-                                  src={prod.productImages[0]?.startsWith("db:") ? (db.getProductById(prod.id)?.productImages[0] || "https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&q=80&w=150") : (prod.productImages[0] || "https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&q=80&w=150")} 
+                                  src={prod.productImages[0] || "https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&q=80&w=150"} 
                                   referrerPolicy="no-referrer"
                                   className="w-16 h-16 object-cover rounded-xl border border-slate-200 bg-white" 
                                 />
@@ -2234,9 +2191,7 @@ _Message us now to reserve this device in stock!_`;
                               {prod.productVideo && (
                                 <button 
                                   onClick={() => {
-                                    const vUrl = prod.productVideo?.startsWith("db:") 
-                                      ? (db.getProductById(prod.id)?.productVideo || "") 
-                                      : (prod.productVideo || "");
+                                    const vUrl = prod.productVideo || "";
                                     if (vUrl) {
                                       setSelectedVideoUrl(vUrl);
                                       setIsVideoModalOpen(true);
@@ -2274,8 +2229,7 @@ _Message us now to reserve this device in stock!_`;
                                   disabled={prod.quantity === 0}
                                   onClick={() => {
                                     if (confirm(`Are you sure you want to delete ${prod.brand} ${prod.model}?`)) {
-                                      db.deleteProduct(shopId || "", prod.id);
-                                      db.addAuditLog(shopId || "", senderName, senderPhone, "Product Removed", `Deleted ${prod.brand} ${prod.model} via WhatsApp Assistant.`);
+                                      deleteProduct(prod.id, `${prod.brand} ${prod.model}`, { shopId: shopId || "", userId: senderPhone, userName: senderName });
                                       addBotMessageOnly(`🗑️ *PRODUCT REMOVED SUCCESSFUL*\n\nDeleted *${prod.brand} ${prod.model}* from your live catalog database.`);
                                     }
                                   }}
@@ -2298,8 +2252,7 @@ _Message us now to reserve this device in stock!_`;
                                     status: "Available",
                                     createdAt: new Date().toISOString()
                                   };
-                                  onSaveProduct(copy);
-                                  db.addAuditLog(shopId || "", senderName, senderPhone, "Product Duplicated", `Duplicated ${prod.brand} ${prod.model} via WhatsApp Assistant.`);
+                                  duplicateProduct(copy, { shopId: shopId || "", userId: senderPhone, userName: senderName });
                                   addBotMessageOnly(`📋 *PRODUCT DUPLICATED SUCCESSFUL*\n\nCreated identical duplicate: *${copy.brand} ${copy.model}* successfully.`);
                                 }}
                                 className="bg-slate-100 hover:bg-slate-200 border border-slate-200 text-[8px] py-1.5 rounded-md font-extrabold text-slate-700 cursor-pointer flex items-center justify-center gap-1"
@@ -2358,8 +2311,8 @@ _Message us now to reserve this device in stock!_`;
                             {/* Staff Action Button */}
                             <div className="flex justify-end pt-1">
                               <button
-                                onClick={() => {
-                                  const res = onUndoLastSale(shopId || "", sale.id, senderName);
+                                onClick={async () => {
+                                  const res = await onUndoLastSale(shopId || "", sale.id, senderName);
                                   addBotMessageOnly(res.message);
                                 }}
                                 className="text-[8px] font-bold text-rose-600 bg-rose-50 border border-rose-100 px-2 py-0.5 rounded hover:bg-rose-100 cursor-pointer"
@@ -2925,7 +2878,7 @@ _Message us now to reserve this device in stock!_`;
                       status: "Available",
                       createdAt: new Date().toISOString()
                     };
-                    onSaveProduct(copy);
+                    duplicateProduct(copy, { shopId: shopId || "", userId: senderPhone, userName: senderName });
                     setViewingDetailProduct(null);
                     addBotMessageOnly(`📋 *PRODUCT DUPLICATED*\nCreated duplicate: *${copy.brand} ${copy.model}*`);
                   }}
@@ -2955,7 +2908,7 @@ _Message us now to reserve this device in stock!_`;
                   onClick={() => {
                     const prod = viewingDetailProduct;
                     if (confirm(`Are you sure you want to delete ${prod.brand} ${prod.model}?`)) {
-                      db.deleteProduct(shopId || "", prod.id);
+                      deleteProduct(prod.id, `${prod.brand} ${prod.model}`, { shopId: shopId || "", userId: senderPhone, userName: senderName });
                       setViewingDetailProduct(null);
                       addBotMessageOnly(`🗑️ *PRODUCT DELETED*\nRemoved *${prod.brand} ${prod.model}* from catalog.`);
                     }

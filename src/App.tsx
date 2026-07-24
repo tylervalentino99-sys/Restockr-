@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { db, subscribeToDBUpdates } from "./lib/database";
 import { Product, Sale, Customer, Staff, Shop, AppNotification } from "./types";
+import { createProduct, updateProduct, deleteProduct, recordSale, reverseSale, saveCustomer } from "./lib/services";
 import DashboardOverview from "./components/DashboardOverview";
 import InventoryManager from "./components/InventoryManager";
 import SalesManager from "./components/SalesManager";
@@ -13,11 +14,7 @@ import SettingsSubscription from "./components/SettingsSubscription";
 import WhatsAppEmulator from "./components/WhatsAppEmulator";
 import ResellerWebsite from "./components/ResellerWebsite";
 
-import { 
-  Package, ShoppingCart, Users, FileText, Globe, Key, Bell, 
-  Smartphone, LogOut, Check, Sparkles, LayoutDashboard, Settings, 
-  Lock, AlertTriangle, Menu, X, ArrowUpRight 
-} from "lucide-react";
+import { Package, ShoppingCart, Users, FileText, Globe, Key, Bell, Smartphone, LogOut, Check, Sparkles, LayoutDashboard, Settings, Lock, TriangleAlert as AlertTriangle, Menu, X, ArrowUpRight } from "lucide-react";
 
 export default function App() {
   // ----------------------------------------------------
@@ -788,17 +785,18 @@ export default function App() {
                     shop={currentShop}
                     products={products}
                     onSaveProduct={async (p) => {
-                      await db.saveProduct(p);
-                      await db.addAuditLog(currentShop.id, "Owner", "Owner", "Product Modified", `Saved product: ${p.brand} ${p.model}`);
+                      const isNew = !p.id || p.id.startsWith("prod-");
+                      if (isNew) await createProduct(p, { shopId: currentShop.id, userId: "Owner", userName: "Owner" });
+                      else await updateProduct(p, { shopId: currentShop.id, userId: "Owner", userName: "Owner" });
                       syncStates();
                     }}
                     onDeleteProduct={async (id) => {
-                      await db.deleteProduct(currentShop.id, id);
-                      await db.addAuditLog(currentShop.id, "Owner", "Owner", "Product Removed", "Deleted product line.");
+                      const prod = products.find(p => p.id === id);
+                      await deleteProduct(id, prod ? `${prod.brand} ${prod.model}` : "Product", { shopId: currentShop.id, userId: "Owner", userName: "Owner" });
                       syncStates();
                     }}
                     onSaveSale={async (sale) => {
-                      await db.saveSale(sale);
+                      await recordSale({ ...sale, shop_id: currentShop.id, sellingPrice: sale.unitPrice }, { shopId: currentShop.id, userId: "Owner", userName: "Owner" });
                       syncStates();
                     }}
                     showAddFormImmediately={showAddProductWizard}
@@ -812,10 +810,11 @@ export default function App() {
                     sales={sales}
                     shop={currentShop}
                     onSaveSale={async (sale) => {
-                      await db.saveSale(sale);
+                      await recordSale({ ...sale, shop_id: currentShop.id, sellingPrice: sale.unitPrice }, { shopId: currentShop.id, userId: "Owner", userName: "Owner" });
                       syncStates();
                     }}
                     onUndoSale={async (id, perf) => {
+                      await reverseSale(currentShop.id, id, { shopId: currentShop.id, userId: "Owner", userName: perf || "Owner" });
                       syncStates();
                     }}
                     onRequestNavigateToInventory={() => setActiveModule("inventory")}
@@ -826,7 +825,7 @@ export default function App() {
                   <CustomerManager
                     customers={customers}
                     onSaveCustomer={async (c) => {
-                      await db.saveCustomer(c);
+                      await saveCustomer({ ...c, shop_id: currentShop.id } as Customer, { shopId: currentShop.id, userId: "Owner", userName: "Owner" });
                       syncStates();
                     }}
                   />
@@ -906,16 +905,18 @@ export default function App() {
                 products={products}
                 sales={sales}
                 staffList={staff}
-                onSaveProduct={async (p) => {
-                  await db.saveProduct(p);
-                  syncStates();
-                }}
                 onSaveSale={async (s) => {
-                  await db.saveSale(s);
+                  await recordSale({ ...s, shop_id: currentShop.id, sellingPrice: s.unitPrice }, { shopId: currentShop.id, userId: "Owner", userName: "Owner" });
                   syncStates();
                 }}
                 onUndoLastSale={async (shopId, saleId, perf) => {
-                  syncStates();
+                  try {
+                    await reverseSale(shopId, saleId, { shopId: currentShop.id, userId: perf || "Owner", userName: perf || "Owner" });
+                    syncStates();
+                    return { success: true, message: "✅ Sale reversed and stock restored successfully." };
+                  } catch (err) {
+                    return { success: false, message: `❌ Failed to reverse sale: ${err instanceof Error ? err.message : "Unknown error"}` };
+                  }
                 }}
                 isExpired={isSimulatedExpired}
               />

@@ -74,12 +74,12 @@ export default function InventoryManager({
   }, [shopId, products]);
 
   const handleReverseSale = (saleId: string) => {
-    triggerDeleteConfirm("Transaction Reversal", () => {
-      const result = db.undoSale(shopId, saleId, "Owner");
-      if (result.success) {
-        // Success message or toast
-      } else {
-        alert(result.message);
+    triggerDeleteConfirm("Transaction Reversal", async () => {
+      try {
+        const { reverseSale } = await import("../lib/services");
+        await reverseSale(shopId, saleId, { shopId, userId: "Owner", userName: "Owner" });
+      } catch (err) {
+        alert(err instanceof Error ? err.message : "Failed to reverse sale");
       }
     }, "Are you sure you want to REVERSE / UNDO this sale? This will immediately restore the product back to active available stock, recalculate customer metrics, and completely delete the sales record.");
   };
