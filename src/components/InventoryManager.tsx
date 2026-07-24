@@ -3,12 +3,7 @@ import { Product, Category, Sale, Shop } from "../types";
 import { db } from "../lib/database";
 import { uploadMediaToSupabase, generateAndUploadVideoThumbnail } from "../lib/supabase";
 import { DEVICE_DATABASE, CATEGORY_BRANDS, BRAND_DISPLAY_NAMES, WARRANTY_OPTIONS, parseShortenedPriceToNumber, formatShortenedPriceInput, getCategoryQuickTags } from "../lib/deviceDb";
-import { 
-  Plus, Search, SlidersHorizontal, Trash2, Edit3, X, Image as ImageIcon, 
-  Video, Save, Sparkles, CheckCircle2, ChevronDown, Package, Layers, 
-  Smartphone, HardDrive, CreditCard, Box, Key, Tag, ShieldCheck, ChevronUp, AlertCircle,
-  FileText, RefreshCw, Play
-} from "lucide-react";
+import { Plus, Search, SlidersHorizontal, Trash2, CreditCard as Edit3, X, Image as ImageIcon, Video, Save, Sparkles, CircleCheck as CheckCircle2, ChevronDown, Package, Layers, Smartphone, HardDrive, CreditCard, Box, Key, Tag, ShieldCheck, ChevronUp, CircleAlert as AlertCircle, FileText, RefreshCw, Play } from "lucide-react";
 import OfficialReceiptModal from "./OfficialReceiptModal";
 import { VideoPlayerModal } from "./VideoPlayerModal";
 
@@ -478,53 +473,6 @@ export default function InventoryManager({
 
   // Upload loading state
   const [isSavingMedia, setIsSavingMedia] = useState(false);
-
-  // Image Upload handler
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files) return;
-
-    Array.from(files).forEach((file: any) => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        if (typeof reader.result === "string") {
-          const img = new Image();
-          img.src = reader.result;
-          img.onload = () => {
-            const canvas = document.createElement("canvas");
-            let width = img.width;
-            let height = img.height;
-            const MAX_WIDTH = 800;
-            const MAX_HEIGHT = 800;
-
-            if (width > height) {
-              if (width > MAX_WIDTH) {
-                height *= MAX_WIDTH / width;
-                width = MAX_WIDTH;
-              }
-            } else {
-              if (height > MAX_HEIGHT) {
-                width *= MAX_HEIGHT / height;
-                height = MAX_HEIGHT;
-              }
-            }
-
-            canvas.width = width;
-            canvas.height = height;
-            const ctx = canvas.getContext("2d");
-            if (ctx) {
-              ctx.drawImage(img, 0, 0, width, height);
-              const compressedDataUrl = canvas.toDataURL("image/jpeg", 0.7);
-              setFormImages(prev => [...prev, compressedDataUrl]);
-            } else {
-              setFormImages(prev => [...prev, reader.result as string]);
-            }
-          };
-        }
-      };
-      reader.readAsDataURL(file);
-    });
-  };
 
   const handleVideoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
