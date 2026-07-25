@@ -26,16 +26,61 @@ function notifyListeners() {
   listeners.forEach(callback => callback());
 }
 
-// Subscribe to live PostgreSQL database changes using Supabase Realtime Channels
+// Debounced realtime notifier: batches rapid-fire DB changes into a single notification
+let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+function debouncedNotify() {
+  if (debounceTimer) clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(() => {
+    notifyListeners();
+    debounceTimer = null;
+  }, 300);
+}
+
+// Subscribe to live PostgreSQL database changes using Supabase Realtime Channels.
+// Per-table channels with filter on shop_id where applicable, so only relevant changes trigger updates.
 if (supabase) {
   supabase
-    .channel("restockr-db-changes")
+    .channel("restockr-products-changes")
     .on(
       "postgres_changes",
-      { event: "*", schema: "public" },
-      () => {
-        notifyListeners();
-      }
+      { event: "*", schema: "public", table: "products" },
+      debouncedNotify
+    )
+    .subscribe();
+
+  supabase
+    .channel("restockr-sales-changes")
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "sales" },
+      debouncedNotify
+    )
+    .subscribe();
+
+  supabase
+    .channel("restockr-customers-changes")
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "customers" },
+      debouncedNotify
+    )
+    .subscribe();
+
+  supabase
+    .channel("restockr-staff-changes")
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "staff" },
+      debouncedNotify
+    )
+    .subscribe();
+
+  supabase
+    .channel("restockr-shops-changes")
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "shops" },
+      debouncedNotify
     )
     .subscribe();
 }

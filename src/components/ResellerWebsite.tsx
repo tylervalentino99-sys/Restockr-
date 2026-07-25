@@ -1,10 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { Product, Shop, Category } from "../types";
 import { db } from "../lib/database";
-import { 
-  Download, Copy, Check, Video, Image as ImageIcon, Search, Phone, 
-  HelpCircle, AlertTriangle, BadgeAlert, Sparkles, ExternalLink, ArrowRight, Play
-} from "lucide-react";
+import { supabase } from "../lib/supabase";
+import { Download, Copy, Check, Video, Image as ImageIcon, Search, Phone, Circle as HelpCircle, TriangleAlert as AlertTriangle, BadgeAlert, Sparkles, ExternalLink, ArrowRight, Play, RefreshCw } from "lucide-react";
 import { VideoPlayerModal } from "./VideoPlayerModal";
 
 interface ResellerWebsiteProps {
@@ -43,6 +41,8 @@ export default function ResellerWebsite({
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [selectedVideoUrl, setSelectedVideoUrl] = useState<string | null>(null);
   const [isVideoModalOpen, setIsVideoModalOpen] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
   if (isLoading) {
     return (
@@ -77,10 +77,16 @@ export default function ResellerWebsite({
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  const handleDownloadFile = async (url: string, filename: string) => {
+  const handleDownloadFile = async (url: string, filename: string, productId: string) => {
+    setDownloadError(null);
+    setDownloadingId(productId);
     try {
-      const response = await fetch(url);
-      const blob = await response.blob();
+      const path = url.replace(/.*\/storage\/v1\/object\/public\/(product-videos|product-images|shop-assets)\//, "");
+      const bucket = url.includes("product-videos") ? "product-videos" : url.includes("product-images") ? "product-images" : "shop-assets";
+      const { data: blob, error } = await supabase.storage.from(bucket).download(path);
+      if (error || !blob) {
+        throw new Error(error?.message || "Unable to fetch file from storage.");
+      }
       const blobUrl = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = blobUrl;
@@ -89,14 +95,11 @@ export default function ResellerWebsite({
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(blobUrl);
-    } catch {
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = filename;
-      link.target = "_blank";
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+    } catch (err: any) {
+      setDownloadError(`Download failed: ${err.message || "Unknown error"}. Please try again or contact the store.`);
+      setTimeout(() => setDownloadError(null), 5000);
+    } finally {
+      setDownloadingId(null);
     }
   };
 
@@ -331,12 +334,21 @@ export default function ResellerWebsite({
 
                         {shop.websiteSettings.enableVideoDownloads && (
                           <button
-                            disabled={!hasVideo}
-                            onClick={() => handleDownloadFile(product.productVideo || "", `${product.model}_demonstration.mp4`)}
+                            disabled={!hasVideo || downloadingId === product.id}
+                            onClick={() => handleDownloadFile(product.productVideo || "", `${product.model}_demonstration.mp4`, product.id)}
                             className="flex flex-col items-center justify-center p-2 border border-[#2A2A2A] bg-black text-zinc-300 hover:text-white rounded-xl text-[10px] font-bold cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                           >
-                            <Video className="w-4 h-4 text-zinc-400 mb-1" />
-                            <span>Video</span>
+                            {downloadingId === product.id ? (
+                              <>
+                                <RefreshCw className="w-4 h-4 text-teal-400 mb-1 animate-spin" />
+                                <span>Downloading...</span>
+                              </>
+                            ) : (
+                              <>
+                                <Video className="w-4 h-4 text-zinc-400 mb-1" />
+                                <span>Video</span>
+                              </>
+                            )}
                           </button>
                         )}
                       </div>
@@ -348,6 +360,12 @@ export default function ResellerWebsite({
           </div>
         )}
       </main>
+
+      {downloadError && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-rose-500/90 text-white px-5 py-3 rounded-xl text-xs font-bold shadow-2xl backdrop-blur-sm border border-rose-400/50 max-w-md text-center">
+          {downloadError}
+        </div>
+      )}
 
       {selectedVideoUrl && (
         <VideoPlayerModal

@@ -1,19 +1,20 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, lazy, Suspense } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { db, subscribeToDBUpdates } from "./lib/database";
 import { supabase } from "./lib/supabase";
 import { Product, Sale, Customer, Staff, Shop, AppNotification } from "./types";
 import { createProduct, updateProduct, deleteProduct, recordSale, reverseSale, saveCustomer } from "./lib/services";
 import DashboardOverview from "./components/DashboardOverview";
-import InventoryManager from "./components/InventoryManager";
-import SalesManager from "./components/SalesManager";
-import CustomerManager from "./components/CustomerManager";
-import ReportsManager from "./components/ReportsManager";
-import StaffManager from "./components/StaffManager";
-import WebsiteSettings from "./components/WebsiteSettings";
-import SettingsSubscription from "./components/SettingsSubscription";
-import WhatsAppEmulator from "./components/WhatsAppEmulator";
-import ResellerWebsite from "./components/ResellerWebsite";
+
+const InventoryManager = lazy(() => import("./components/InventoryManager"));
+const SalesManager = lazy(() => import("./components/SalesManager"));
+const CustomerManager = lazy(() => import("./components/CustomerManager"));
+const ReportsManager = lazy(() => import("./components/ReportsManager"));
+const StaffManager = lazy(() => import("./components/StaffManager"));
+const WebsiteSettings = lazy(() => import("./components/WebsiteSettings"));
+const SettingsSubscription = lazy(() => import("./components/SettingsSubscription"));
+const WhatsAppEmulator = lazy(() => import("./components/WhatsAppEmulator"));
+const ResellerWebsite = lazy(() => import("./components/ResellerWebsite"));
 
 import { Package, ShoppingCart, Users, FileText, Globe, Key, Bell, Smartphone, LogOut, Check, Sparkles, LayoutDashboard, Settings, Lock, TriangleAlert as AlertTriangle, Menu, X, ArrowUpRight } from "lucide-react";
 
@@ -331,9 +332,11 @@ export default function App() {
 
   if (isPublicWebsitePath) {
     return (
-      <ResellerWebsite 
-        shopSlug={publicShopSlug} 
-      />
+      <Suspense fallback={<div className="min-h-screen bg-[#0A0A0A] flex items-center justify-center text-white text-sm font-mono animate-pulse">Loading storefront...</div>}>
+        <ResellerWebsite 
+          shopSlug={publicShopSlug} 
+        />
+      </Suspense>
     );
   }
 
@@ -823,6 +826,7 @@ export default function App() {
                 exit={{ opacity: 0, y: -10 }}
                 transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
               >
+                <Suspense fallback={<div className="flex items-center justify-center h-64 text-slate-400 text-sm font-mono">Loading module...</div>}>
                 {activeModule === "dashboard" && (
                   <DashboardOverview
                     products={products}
@@ -933,6 +937,7 @@ export default function App() {
                     isSimulatedExpired={isSimulatedExpired}
                   />
                 )}
+                </Suspense>
               </motion.div>
             </AnimatePresence>
           </div>
@@ -955,6 +960,7 @@ export default function App() {
               </button>
             </div>
             <div className="flex-1 overflow-y-auto p-4 bg-[#E5DDD5]">
+              <Suspense fallback={<div className="flex items-center justify-center h-64 text-slate-500 text-sm font-mono">Loading assistant...</div>}>
               <WhatsAppEmulator
                 shopId={currentShop.id}
                 products={products}
@@ -975,6 +981,7 @@ export default function App() {
                 }}
                 isExpired={isSimulatedExpired}
               />
+              </Suspense>
             </div>
           </aside>
         )}

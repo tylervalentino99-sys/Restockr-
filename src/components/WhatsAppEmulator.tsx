@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { Product, Sale, Staff, Category, Customer, AuditLog } from "../types";
 import { 
   Send, Check, CheckCheck, Smartphone, UserCheck, AlertOctagon, HelpCircle, 
@@ -12,6 +12,8 @@ import { uploadFileToSupabase } from "../lib/supabase";
 import { createProduct, updateProduct, deleteProduct, duplicateProduct, recordSale, reverseSale, canPerform, logAction } from "../lib/services";
 import { VideoPlayerModal } from "./VideoPlayerModal";
 import { ImageGalleryModal } from "./ImageGalleryModal";
+import type { Message, FlowType, SessionState } from "./whatsapp/types";
+import { clearAssistantDraft as clearAssistantDraftModule, saveAssistantDraft as saveAssistantDraftModule, getAssistantDraft as getAssistantDraftModule } from "./whatsapp/draftStorage";
 
 interface WhatsAppEmulatorProps {
   shopId?: string;
@@ -22,35 +24,6 @@ interface WhatsAppEmulatorProps {
   onSaveSale: (s: Sale) => void;
   onUndoLastSale: (shopId: string, saleId: string, performer: string) => Promise<{ success: boolean; message: string }>;
   isExpired: boolean;
-}
-
-interface Message {
-  id: string;
-  sender: "user" | "bot";
-  text: string;
-  timestamp: string;
-  status: "sent" | "delivered" | "read";
-  // Rich payload flags for visual layout overlays in chat
-  type?: "text" | "inventory_list" | "recent_sales" | "activity_log";
-  productsData?: Product[];
-  recentSalesData?: Sale[];
-  auditLogsData?: AuditLog[];
-}
-
-type FlowType = 
-  | "none" 
-  | "add_product" 
-  | "sell_product" 
-  | "find_product" 
-  | "update_product"
-  | "recent_sales"
-  | "activity_log"
-  | "help";
-
-interface SessionState {
-  currentFlow: FlowType;
-  step: number;
-  data: Record<string, any>;
 }
 
 export default function WhatsAppEmulator({
@@ -82,6 +55,11 @@ export default function WhatsAppEmulator({
 
   const [inputText, setInputText] = useState("");
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const chatScrollRef = useRef<HTMLDivElement>(null);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(500);
+  const VISIBLE_MESSAGE_WINDOW = 50;
+  const [visibleMessageWindow, setVisibleMessageWindow] = useState(VISIBLE_MESSAGE_WINDOW);
 
   // Guided wizard flow state
   const [session, setSession] = useState<SessionState>({
@@ -109,16 +87,9 @@ export default function WhatsAppEmulator({
   const [isQuickMenuOpen, setIsQuickMenuOpen] = useState<boolean>(false);
   const [viewingDetailProduct, setViewingDetailProduct] = useState<Product | null>(null);
 
-  // Assistant Draft Preservation
-  const DRAFT_STORAGE_KEY = `restockr_assistant_draft_${shopId}_${senderPhone.replace(/\+/g, "")}`;
-
+  // Assistant Draft Preservation (delegated to extracted module)
   const clearAssistantDraft = () => {
-    try {
-      localStorage.removeItem(DRAFT_STORAGE_KEY);
-      localStorage.removeItem(`restockr_assistant_draft_${shopId}`);
-    } catch (e) {
-      console.warn("Assistant draft clear failed", e);
-    }
+    if (shopId) clearAssistantDraftModule(shopId, senderPhone);
   };
 
   const saveAssistantDraft = (
@@ -128,27 +99,15 @@ export default function WhatsAppEmulator({
     images: string[] = uploadedImages, 
     video: string = uploadedVideo
   ) => {
+    if (!shopId) return;
     if (flow === "none" || step === 0) {
       clearAssistantDraft();
       return;
     }
-    try {
-      localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify({
-        flow,
-        step,
-        data,
-        uploadedImages: images,
-        uploadedVideo: video,
-        senderPhone,
-        completed: false,
-        updatedAt: new Date().toISOString()
-      }));
-    } catch (e) {
-      console.warn("Assistant draft save failed", e);
-    }
+    saveAssistantDraftModule(shopId, senderPhone, flow, step, data, images, video);
   };
 
-  const getAssistantDraft = (): { 
+  const getAssistantDraftLocal = (): { 
     flow: FlowType; 
     step: number; 
     data: any; 
@@ -157,18 +116,8 @@ export default function WhatsAppEmulator({
     senderPhone: string;
     completed?: boolean;
   } | null => {
-    try {
-      const item = localStorage.getItem(DRAFT_STORAGE_KEY);
-      if (!item) return null;
-      const parsed = JSON.parse(item);
-      if (!parsed || parsed.flow === "none" || parsed.step <= 0 || parsed.completed) {
-        clearAssistantDraft();
-        return null;
-      }
-      return parsed;
-    } catch {
-      return null;
-    }
+    if (!shopId) return null;
+    return getAssistantDraftModule(shopId, senderPhone);
   };
 
   // Component-level sender status and permissions
@@ -293,7 +242,7 @@ Confirm to commit this product to your catalog:`;
   };
 
   useEffect(() => {
-    const draft = getAssistantDraft();
+    const draft = getAssistantDraftLocal();
     if (draft && draft.flow && draft.flow !== "none" && draft.step > 0 && !draft.completed) {
       setSession({
         currentFlow: draft.flow,
@@ -2096,9 +2045,23 @@ _Message us now to reserve this device in stock!_`;
             </div>
           )}
 
-          {/* Chat Messages Log list */}
-          <div className="flex-1 overflow-y-auto p-3.5 space-y-3.5 bg-[#E5DDD5]" id="chat-scroller">
-            {messages.map(msg => (
+          {/* Chat Messages Log list — windowed render (last N messages) for performance */}
+          <div
+            ref={chatScrollRef}
+            className="flex-1 overflow-y-auto p-3.5 space-y-3.5 bg-[#E5DDD5]" id="chat-scroller"
+          >
+            {messages.length > VISIBLE_MESSAGE_WINDOW && (
+              <div className="text-center">
+                <button
+                  type="button"
+                  onClick={() => setVisibleMessageWindow(w => Math.min(messages.length, w + VISIBLE_MESSAGE_WINDOW))}
+                  className="text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-4 py-2 rounded-full hover:bg-emerald-100 cursor-pointer shadow-sm"
+                >
+                  Load earlier messages ({messages.length - visibleMessageWindow} hidden)
+                </button>
+              </div>
+            )}
+            {messages.slice(Math.max(0, messages.length - visibleMessageWindow)).map(msg => (
               <div 
                 key={msg.id} 
                 className={`flex flex-col max-w-[90%] ${msg.sender === "user" ? "ml-auto items-end" : "mr-auto items-start"}`}
