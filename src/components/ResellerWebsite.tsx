@@ -64,30 +64,40 @@ export default function ResellerWebsite({
   }
 
   const handleCopyDetails = (product: Product) => {
-    const batteryText = product.batteryHealth ? `\n🔋 Battery: ${product.batteryHealth}` : "";
-    const text = 
-`🔥 *${product.brand} ${product.model}*
-📦 Storage: ${product.storage}
-💰 Price: ₦${product.sellingPrice.toLocaleString()}
-🛡️ Warranty: ${product.warranty}${batteryText}
-🏷️ Specs: ${product.condition.join(" | ")}
-
-📥 *Contact us on WhatsApp to lock stock!*
-📞 ${shop.whatsappNumber}
-🛒 Visit catalog: ${window.location.origin}/#/shop/${shop.slug}`;
-
+    const parts: string[] = [product.model];
+    if (product.condition && product.condition.length > 0) {
+      parts.push(...product.condition);
+    }
+    if (shop.websiteSettings.showPrices) {
+      parts.push(`₦${product.sellingPrice.toLocaleString()}`);
+    }
+    const text = parts.join(", ");
     navigator.clipboard.writeText(text);
     setCopiedId(product.id);
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  const handleDownloadFile = (url: string, filename: string) => {
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  const handleDownloadFile = async (url: string, filename: string) => {
+    try {
+      const response = await fetch(url);
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = blobUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(blobUrl);
+    } catch {
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      link.target = "_blank";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
   };
 
   if (isExpired) {
@@ -289,16 +299,22 @@ export default function ResellerWebsite({
                     <div className="space-y-4">
                       <div className="flex justify-between items-baseline">
                         <span className="text-[10px] font-mono text-zinc-500 uppercase font-semibold">Reseller Price</span>
-                        <span className="font-mono text-2xl font-black text-white">
-                          ₦{product.sellingPrice.toLocaleString()}
-                        </span>
+                        {shop.websiteSettings.showPrices ? (
+                          <span className="font-mono text-2xl font-black text-white">
+                            ₦{product.sellingPrice.toLocaleString()}
+                          </span>
+                        ) : (
+                          <span className="font-mono text-sm font-bold text-zinc-500">
+                            Contact for price
+                          </span>
+                        )}
                       </div>
 
-                      <div className="grid grid-cols-3 gap-2">
+                      <div className={`grid gap-2 ${shop.websiteSettings.enableVideoDownloads ? "grid-cols-2" : "grid-cols-1"}`}>
                         <button
                           onClick={() => handleCopyDetails(product)}
                           className="flex flex-col items-center justify-center p-2 border border-[#2A2A2A] bg-black text-zinc-300 hover:text-white rounded-xl text-[10px] font-bold cursor-pointer transition-colors"
-                          title="Copy details optimized for WhatsApp Status"
+                          title="Copy details for WhatsApp"
                         >
                           {copiedId === product.id ? (
                             <>
@@ -308,28 +324,21 @@ export default function ResellerWebsite({
                           ) : (
                             <>
                               <Copy className="w-4 h-4 text-zinc-400 mb-1" />
-                              <span>Copy Text</span>
+                              <span>Copy Details</span>
                             </>
                           )}
                         </button>
 
-                        <button
-                          disabled={!shop.websiteSettings.enableImageDownloads || (!product.productImages[0] && !product.thumbnailUrl)}
-                          onClick={() => handleDownloadFile(product.productImages[0] || product.thumbnailUrl || "", `${product.model}_photo.jpg`)}
-                          className="flex flex-col items-center justify-center p-2 border border-[#2A2A2A] bg-black text-zinc-300 hover:text-white rounded-xl text-[10px] font-bold cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                        >
-                          <ImageIcon className="w-4 h-4 text-zinc-400 mb-1" />
-                          <span>Photo</span>
-                        </button>
-
-                        <button
-                          disabled={!shop.websiteSettings.enableVideoDownloads || !hasVideo}
-                          onClick={() => handleDownloadFile(product.productVideo || "", `${product.model}_demonstration.mp4`)}
-                          className="flex flex-col items-center justify-center p-2 border border-[#2A2A2A] bg-black text-zinc-300 hover:text-white rounded-xl text-[10px] font-bold cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                        >
-                          <Video className="w-4 h-4 text-zinc-400 mb-1" />
-                          <span>Video</span>
-                        </button>
+                        {shop.websiteSettings.enableVideoDownloads && (
+                          <button
+                            disabled={!hasVideo}
+                            onClick={() => handleDownloadFile(product.productVideo || "", `${product.model}_demonstration.mp4`)}
+                            className="flex flex-col items-center justify-center p-2 border border-[#2A2A2A] bg-black text-zinc-300 hover:text-white rounded-xl text-[10px] font-bold cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                          >
+                            <Video className="w-4 h-4 text-zinc-400 mb-1" />
+                            <span>Video</span>
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>

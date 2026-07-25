@@ -19,7 +19,7 @@ export default function OfficialReceiptModal({
 
   if (!sale) return null;
 
-  // Retrieve original product to show IMEI, precise warranty and Nigerian condition tags
+  // Retrieve original product to show precise warranty and Nigerian condition tags
   const originalProduct = products.find(p => p.id === sale.productId);
 
   const businessName = shop?.name || "RESTOCKR";
@@ -187,9 +187,6 @@ export default function OfficialReceiptModal({
                     <p className="font-extrabold text-slate-950 text-xs uppercase">{sale.productName}</p>
                     {originalProduct?.variant && (
                       <p className="text-[10px] text-slate-500 mt-0.5">Variant: {originalProduct.variant}</p>
-                    )}
-                    {originalProduct?.imei && (
-                      <p className="text-[10px] text-slate-500 font-mono mt-0.5">IMEI: <span className="text-slate-900 font-semibold">{originalProduct.imei}</span></p>
                     )}
                     {originalProduct?.warranty && (
                       <p className="text-[10px] text-emerald-700 font-semibold mt-0.5">Warranty: {originalProduct.warranty}</p>

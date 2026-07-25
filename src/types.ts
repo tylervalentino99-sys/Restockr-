@@ -65,7 +65,6 @@ export interface Product {
   batteryHealth?: string; // e.g. "88%", "Service", "IBM", "Other"
   warranty: string; // "No Warranty", "7 Days", "14 Days", etc.
   condition: string[]; // Nigerian Device Condition Quick Tags
-  imei?: string; // IMEI or serial number
   variant?: string; // Optional custom variant/color/model extension
   minimumStockThreshold?: number; // Minimum stock alert threshold
   productVideo?: string; // Permanent Storage URL
@@ -144,6 +143,7 @@ export interface Shop {
   subscriptionExpiry: string;
   websiteSettings: {
     showSoldProducts: boolean;
+    showPrices: boolean;
     enableVideoDownloads: boolean;
     enableImageDownloads: boolean;
     customThemeColor: string; // HEX or color class

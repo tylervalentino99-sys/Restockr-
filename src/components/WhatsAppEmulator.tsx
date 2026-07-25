@@ -232,13 +232,12 @@ export default function WhatsAppEmulator({
 • *Specs:* ${currentData.storage} ${currentData.ram ? `/ ${currentData.ram} RAM` : ""} ${currentData.processor ? `(${currentData.processor})` : ""}
 • *Color:* ${currentData.color || "Skipped"}
 • *Price:* ₦${Number(currentData.sellingPrice).toLocaleString()}
-• *IMEI / SN:* ${currentData.imei || "Skipped"}
 • *Condition:* ${(currentData.condition || []).join(", ") || "Clean Device"}
 • *Battery Health:* ${currentData.batteryHealth || "N/A"}
 • *Warranty:* ${currentData.warranty || "No Warranty"}
 • *Media Attachment:* ${mediaStatus}
 
-Confirm to commit this product directly to your database:`;
+Confirm to commit this product to your catalog:`;
 
     addBotMessageOnly(summary);
   };
@@ -572,7 +571,6 @@ Confirm to commit this product directly to your database:`;
         const matches = products.filter(p => 
           p.brand.toLowerCase().includes(query.toLowerCase()) || 
           p.model.toLowerCase().includes(query.toLowerCase()) ||
-          (p.imei && p.imei.includes(query)) ||
           p.storage.toLowerCase().includes(query.toLowerCase())
         );
 
@@ -595,7 +593,7 @@ Confirm to commit this product directly to your database:`;
         setSession({ currentFlow: "find_product", step: 1, data: {} });
         addMessagePair(
           text,
-          "🔍 *Search Catalog*\n\nEnter search query (e.g. iPhone, 256GB, A-Grade, or IMEI):"
+          "🔍 *Search Catalog*\n\nEnter search query (e.g. iPhone, 256GB, A-Grade):"
         );
       }
       return;
@@ -634,7 +632,7 @@ Confirm to commit this product directly to your database:`;
         return;
       }
       setSession({ currentFlow: "find_product", step: 1, data: {} });
-      addMessagePair(text, "🔍 *Search Catalog*\n\nEnter search query (e.g. iPhone, 256GB, A-Grade, or IMEI) or select a category below:");
+      addMessagePair(text, "🔍 *Search Catalog*\n\nEnter search query (e.g. iPhone, 256GB, A-Grade) or select a category below:");
       return;
     }
 
@@ -731,8 +729,7 @@ Confirm to commit this product directly to your database:`;
         else if (step === 4) prevStep = 35;
         else if (step === 45) prevStep = 4;
         else if (step === 5) prevStep = 45;
-        else if (step === 6) prevStep = 5;
-        else if (step === 7) prevStep = 6;
+        else if (step === 7) prevStep = 5;
         else if (step === 8) prevStep = 7;
         else if (step === 9) prevStep = 8;
         else if (step === 10) prevStep = 9;
@@ -943,16 +940,8 @@ Confirm to commit this product directly to your database:`;
         return;
       }
       data.sellingPrice = parsedPrice;
-      setSession({ currentFlow: "add_product", step: 6, data });
-      addBotMessageOnly(`Price set to: *₦${parsedPrice.toLocaleString()}*\n\nEnter device IMEI / Serial Number:`);
-      return;
-    }
-
-    // Step 6: Choose IMEI
-    if (step === 6) {
-      data.imei = textLower === "skip" ? "" : text;
       setSession({ currentFlow: "add_product", step: 7, data });
-      addBotMessageOnly("Select Warranty period option:");
+      addBotMessageOnly(`Price set to: *₦${parsedPrice.toLocaleString()}*\n\nSelect Warranty period option:`);
       return;
     }
 
@@ -1102,7 +1091,7 @@ You can upload photos, a video, or both. Tap *Done* when finished, or *Skip* to 
       return;
     }
 
-    // Step 11: Confirmation Commit to Database
+    // Step 11: Confirmation
     if (step === 11) {
       if (textLower.includes("save") || textLower === "yes" || textLower === "confirm" || textLower.includes("commit")) {
         const finalVid = uploadedVideo || data.productVideo;
@@ -1140,7 +1129,6 @@ You can upload photos, a video, or both. Tap *Done* when finished, or *Skip* to 
             sellingPrice: Number(data.sellingPrice),
             warranty: data.warranty || "No Warranty",
             condition: Array.isArray(data.condition) ? data.condition : ["Clean Device"],
-            imei: data.imei || undefined,
             variant: finalVariant || undefined,
             batteryHealth: data.category === Category.Phones && data.brand.toLowerCase() === "apple" ? (data.batteryHealth || undefined) : undefined,
             productVideo: finalVid,
@@ -1149,7 +1137,7 @@ You can upload photos, a video, or both. Tap *Done* when finished, or *Skip* to 
             createdAt: new Date().toISOString()
           };
 
-          // 1. Save directly to real database via shared service
+          // 1. Save directly via shared service
           await createProduct(newProduct, { shopId, userId: senderPhone, userName: senderName });
 
           // 2. Add System notification
@@ -1167,9 +1155,9 @@ You can upload photos, a video, or both. Tap *Done* when finished, or *Skip* to 
           setSession({ currentFlow: "none", step: 0, data: {} });
           resetMediaUploadStates();
 
-          addBotMessageOnly(`✅ *Product Added Successfully*\n\nStock code *${newProduct.id}* is now live in your store database. Resellers and customers can view this item immediately.`);
+          addBotMessageOnly(`✅ *Product Added Successfully*\n\nStock code *${newProduct.id}* is now live in your store catalog. Resellers and customers can view this item immediately.`);
         } catch (err: any) {
-          addBotMessageOnly(`❌ *DATABASE INSERT FAILED*\n\nError: ${err.message || "Unable to write stock to database."}\n\nType/Tap *Retry* to try saving again, or *Cancel* to abort.`);
+          addBotMessageOnly(`❌ *SAVE FAILED*\n\nError: ${err.message || "Unable to save stock item."}\n\nType/Tap *Retry* to try saving again, or *Cancel* to abort.`);
         }
       } else if (textLower === "edit" || textLower.includes("restart")) {
         clearAssistantDraft();
@@ -1224,7 +1212,6 @@ You can upload photos, a video, or both. Tap *Done* when finished, or *Skip* to 
 
 • *Device:* ${selected.brand} ${selected.model} (${selected.storage})
 • *Price:* ₦${selected.sellingPrice.toLocaleString()}
-• *IMEI:* ${selected.imei || "None"}
 • *Condition:* ${selected.condition?.join(", ") || "Clean Device"}
 
 Do you want to continue recording the sale?`;
@@ -1241,7 +1228,7 @@ Do you want to continue recording the sale?`;
         p.model.toLowerCase().includes(query) ||
         p.storage.toLowerCase().includes(query) ||
         (p.category && p.category.toLowerCase().includes(query)) ||
-        (p.imei && p.imei.toLowerCase().includes(query))
+        (p.category && p.category.toLowerCase().includes(query))
       ));
 
       if (matches.length === 0) {
@@ -1359,7 +1346,7 @@ Do you want to continue recording the sale?`;
 
     const receiptMsg = `🎉 *WALK-IN SALE REGISTERED*
 
-Invoice logged successfully in direct-sync database.
+Invoice logged successfully in your store ledger.
 
 • *Receipt ID:* ${saleObj.id}
 • *Device:* ${saleObj.productName}
@@ -1394,7 +1381,7 @@ Ledger updated instantly. Product stock decreased.`;
         p.model.toLowerCase().includes(keyword) ||
         p.storage.toLowerCase().includes(keyword) ||
         (p.category && p.category.toLowerCase().includes(keyword)) ||
-        (p.imei && p.imei.toLowerCase().includes(keyword))
+        (p.category && p.category.toLowerCase().includes(keyword))
       );
 
       if (matches.length === 0) {
@@ -1412,7 +1399,7 @@ Ledger updated instantly. Product stock decreased.`;
     if (step === 2) {
       if (text.toLowerCase() === "search again") {
         setSession({ currentFlow: "find_product", step: 1, data: {} });
-        addBotMessageOnly("🔍 Enter search keyword (e.g. iPhone, 256GB, A-Grade, or IMEI):");
+        addBotMessageOnly("🔍 Enter search keyword (e.g. iPhone, 256GB, A-Grade):");
         return;
       }
 
@@ -1435,7 +1422,6 @@ Ledger updated instantly. Product stock decreased.`;
 • *Stock Code:* ${selected.id}
 • *Current Stock:* ${selected.quantity > 0 ? `${selected.quantity} units` : "SOLD OUT 🔴"}
 • *Condition:* ${selected.condition?.join(", ") || "Clean Device"}
-• *IMEI / SN:* ${selected.imei || "N/A"}
 • *Battery Health:* ${selected.batteryHealth || "N/A"}
 • *Warranty Period:* ${selected.warranty || "No Warranty"}
 
@@ -1495,12 +1481,11 @@ _Message us now to reserve this device in stock!_`;
         p.brand.toLowerCase().includes(textLower) || 
         p.model.toLowerCase().includes(textLower) ||
         p.id.toLowerCase().includes(textLower) ||
-        (p.imei && p.imei.toLowerCase().includes(textLower)) ||
         (p.variant && p.variant.toLowerCase().includes(textLower))
       );
 
       if (matches.length === 0) {
-        addBotMessageOnly(`⚠️ No matching products found for "${text}". Please enter another search term (name, IMEI, or serial):`);
+        addBotMessageOnly(`⚠️ No matching products found for "${text}". Please enter another search term (name or model):`);
         return;
       }
 
@@ -1568,7 +1553,7 @@ _Message us now to reserve this device in stock!_`;
         // Direct delete operation via shared service
         deleteProduct(p.id, `${p.brand} ${p.model} (${p.storage})`, { shopId, userId: senderPhone, userName: senderName });
         setSession({ currentFlow: "none", step: 0, data: {} });
-        addBotMessageOnly(`🗑️ *PRODUCT REMOVED SUCCESSFUL*\n\nDeleted product line *${p.brand} ${p.model}* from catalog database.`);
+        addBotMessageOnly(`🗑️ *PRODUCT REMOVED SUCCESSFUL*\n\nDeleted product line *${p.brand} ${p.model}* from your catalog.`);
       } else if (choice.includes("duplicate")) {
         // Direct duplicate operation via shared service
         const dupe: Product = {
@@ -1581,7 +1566,7 @@ _Message us now to reserve this device in stock!_`;
         };
         duplicateProduct(dupe, { shopId, userId: senderPhone, userName: senderName });
         setSession({ currentFlow: "none", step: 0, data: {} });
-        addBotMessageOnly(`📋 *PRODUCT DUPLICATED SUCCESSFUL*\n\nCreated identical copy *${dupe.brand} ${dupe.model}* in database.`);
+        addBotMessageOnly(`📋 *PRODUCT DUPLICATED SUCCESSFUL*\n\nCreated identical copy *${dupe.brand} ${dupe.model}* in your catalog.`);
       } else {
         setSession({ currentFlow: "none", step: 0, data: {} });
         addBotMessageOnly("❌ Modifications cancelled. Returned to main menu.");
@@ -1792,7 +1777,6 @@ _Message us now to reserve this device in stock!_`;
       else if (step === 5) {
         baseOptions = ["100K", "200K", "300K", "500K", "750K", "1M"];
       }
-      else if (step === 6) baseOptions = ["Skip"];
       else if (step === 7) baseOptions = ["No Warranty", "7 Days", "14 Days", "30 Days", "60 Days", "90 Days", "6 Months", "1 Year", "Custom", "Skip"];
       else if (step === 8) {
         const selected = Array.isArray(data.condition) ? data.condition : [];
@@ -1920,7 +1904,7 @@ _Message us now to reserve this device in stock!_`;
             <Smartphone className="w-4 h-4 text-emerald-600 animate-pulse" /> Mobile Testing Suite
           </h2>
           <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-            RESTOCKR provides complete direct database synchronization. Staff members log sales, add products, or check prices using WhatsApp guided visual interfaces.
+            RESTOCKR provides complete store catalog synchronization. Staff members log sales, add products, or check prices using WhatsApp guided visual interfaces.
           </p>
         </div>
 
@@ -2027,7 +2011,7 @@ _Message us now to reserve this device in stock!_`;
             <AlertOctagon className="w-3.5 h-3.5 text-teal-400 shrink-0" /> Shared Ledger Rules
           </p>
           <ul className="list-disc pl-3.5 space-y-1">
-            <li>Any update in the WhatsApp assistant modifies the core database.</li>
+            <li>Any update in the WhatsApp assistant modifies the core store catalog.</li>
             <li>No duplicate datastores, background jobs, or synchronization queues are used.</li>
           </ul>
         </div>
@@ -2230,7 +2214,7 @@ _Message us now to reserve this device in stock!_`;
                                   onClick={() => {
                                     if (confirm(`Are you sure you want to delete ${prod.brand} ${prod.model}?`)) {
                                       deleteProduct(prod.id, `${prod.brand} ${prod.model}`, { shopId: shopId || "", userId: senderPhone, userName: senderName });
-                                      addBotMessageOnly(`🗑️ *PRODUCT REMOVED SUCCESSFUL*\n\nDeleted *${prod.brand} ${prod.model}* from your live catalog database.`);
+                                      addBotMessageOnly(`🗑️ *PRODUCT REMOVED SUCCESSFUL*\n\nDeleted *${prod.brand} ${prod.model}* from your live catalog.`);
                                     }
                                   }}
                                   className={`text-[8px] py-1.5 rounded-md font-extrabold flex items-center justify-center gap-1 border ${
@@ -2502,7 +2486,7 @@ _Message us now to reserve this device in stock!_`;
                 <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 flex flex-col gap-2">
                   <div className="flex items-center justify-between text-xs font-bold text-[#075E54]">
                     <span className="flex items-center gap-1.5">
-                      <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Uploading to Supabase Storage...
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Uploading video...
                     </span>
                     <span>{uploadProgress}%</span>
                   </div>
@@ -2811,12 +2795,6 @@ _Message us now to reserve this device in stock!_`;
                 <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100">
                   <span className="text-[10px] text-slate-400 font-mono block uppercase font-bold">Battery Health</span>
                   <span className="font-extrabold text-emerald-600">🔋 {viewingDetailProduct.batteryHealth}</span>
-                </div>
-              )}
-              {viewingDetailProduct.imei && (
-                <div className="col-span-2 bg-slate-50 p-2.5 rounded-xl border border-slate-100">
-                  <span className="text-[10px] text-slate-400 font-mono block uppercase font-bold">IMEI / Serial</span>
-                  <span className="font-mono font-bold text-slate-800 text-xs">{viewingDetailProduct.imei}</span>
                 </div>
               )}
             </div>

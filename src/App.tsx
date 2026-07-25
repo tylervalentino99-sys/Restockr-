@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { db, subscribeToDBUpdates } from "./lib/database";
+import { supabase } from "./lib/supabase";
 import { Product, Sale, Customer, Staff, Shop, AppNotification } from "./types";
 import { createProduct, updateProduct, deleteProduct, recordSale, reverseSale, saveCustomer } from "./lib/services";
 import DashboardOverview from "./components/DashboardOverview";
@@ -99,13 +100,14 @@ export default function App() {
   }, [syncStates]);
 
   // ----------------------------------------------------
-  // OWNER AUTH STATE
+  // OWNER AUTH STATE (Shop Username + Password)
   // ----------------------------------------------------
   const [isLoggedIn, setIsLoggedIn] = useState(() => localStorage.getItem("restockr_isLoggedIn") === "true");
   const [authMode, setAuthMode] = useState<"select" | "signin" | "register">("select");
-  const [authEmail, setAuthEmail] = useState("");
+  const [authUsername, setAuthUsername] = useState("");
   const [authPassword, setAuthPassword] = useState("");
   const [loginError, setLoginError] = useState("");
+  const [authLoading, setAuthLoading] = useState(false);
 
   useEffect(() => {
     localStorage.setItem("restockr_isLoggedIn", isLoggedIn ? "true" : "false");
@@ -116,10 +118,28 @@ export default function App() {
     }
   }, [isLoggedIn, currentShop?.id]);
 
+  // Check for existing Supabase session on mount
+  useEffect(() => {
+    (async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        const username = session.user.email?.replace("@restockr.shop", "") || "";
+        if (username) {
+          const fetchedShops = await db.getShops();
+          const matchedShop = fetchedShops.find(s => s.slug === username);
+          if (matchedShop) {
+            setCurrentShop(matchedShop);
+            setIsLoggedIn(true);
+            setActiveModule("dashboard");
+          }
+        }
+      }
+    })();
+  }, []);
+
   // Registration states
   const [regShopName, setRegShopName] = useState("");
   const [regShopSlug, setRegShopSlug] = useState("");
-  const [regEmail, setRegEmail] = useState("");
   const [regPassword, setRegPassword] = useState("");
   const [regWhatsApp, setRegWhatsApp] = useState("");
 
@@ -135,28 +155,54 @@ export default function App() {
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!authEmail.trim() || !authPassword.trim()) {
-      setLoginError("Credentials cannot be left blank.");
+    if (!authUsername.trim() || !authPassword.trim()) {
+      setLoginError("Username and password cannot be left blank.");
       return;
     }
 
-    const fetchedShops = await db.getShops();
-    const matchedShop = fetchedShops.find(s => s.ownerEmail.toLowerCase() === authEmail.trim().toLowerCase());
-    
-    if (!matchedShop) {
-      setLoginError("No registered shop found for this email address.");
-      return;
-    }
-
-    setCurrentShop(matchedShop);
-    setIsLoggedIn(true);
+    setAuthLoading(true);
     setLoginError("");
-    setActiveModule("dashboard");
+
+    try {
+      const sanitizedSlug = authUsername.trim().toLowerCase().replace(/[^a-z0-9-]/g, "");
+      const syntheticEmail = `${sanitizedSlug}@restockr.shop`;
+
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: syntheticEmail,
+        password: authPassword,
+      });
+
+      if (error) {
+        setLoginError(error.message === "Invalid login credentials" ? "Invalid username or password." : error.message);
+        setAuthLoading(false);
+        return;
+      }
+
+      const fetchedShops = await db.getShops();
+      const matchedShop = fetchedShops.find(s => s.slug === sanitizedSlug);
+
+      if (!matchedShop) {
+        setLoginError("No registered shop found for this username.");
+        await supabase.auth.signOut();
+        setAuthLoading(false);
+        return;
+      }
+
+      setCurrentShop(matchedShop);
+      setIsLoggedIn(true);
+      setLoginError("");
+      setActiveModule("dashboard");
+      await syncStates();
+    } catch (err: any) {
+      setLoginError(err.message || "Login failed. Please try again.");
+    } finally {
+      setAuthLoading(false);
+    }
   };
 
   const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!regShopName.trim() || !regShopSlug.trim() || !regEmail.trim() || !regPassword.trim() || !regWhatsApp.trim()) {
+    if (!regShopName.trim() || !regShopSlug.trim() || !regPassword.trim() || !regWhatsApp.trim()) {
       setLoginError("All fields are required to register your store.");
       return;
     }
@@ -168,22 +214,40 @@ export default function App() {
       return;
     }
 
-    const fetchedShops = await db.getShops();
-    if (fetchedShops.some(s => s.slug === sanitizedSlug)) {
-      setLoginError("This store link / subdomain is already taken.");
-      return;
-    }
+    setAuthLoading(true);
+    setLoginError("");
 
     try {
+      const fetchedShops = await db.getShops();
+      if (fetchedShops.some(s => s.slug === sanitizedSlug)) {
+        setLoginError("This store link / username is already taken.");
+        setAuthLoading(false);
+        return;
+      }
+
+      const syntheticEmail = `${sanitizedSlug}@restockr.shop`;
+
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: syntheticEmail,
+        password: regPassword,
+      });
+
+      if (authError) {
+        setLoginError(authError.message);
+        setAuthLoading(false);
+        return;
+      }
+
       const createdShop = await db.saveShop({
         name: regShopName.trim(),
         slug: sanitizedSlug,
-        ownerEmail: regEmail.trim().toLowerCase(),
+        ownerEmail: syntheticEmail,
         whatsappNumber: regWhatsApp.trim(),
         subscriptionPlan: "Free Trial",
         subscriptionStatus: "Active",
         websiteSettings: {
           showSoldProducts: true,
+          showPrices: true,
           enableVideoDownloads: true,
           enableImageDownloads: true,
           customThemeColor: "#0d9488"
@@ -195,13 +259,13 @@ export default function App() {
         "Owner",
         "Owner",
         "Shop Setup",
-        `Restockr account for ${createdShop.name} was successfully registered on Supabase backend.`
+        `Restockr account for ${createdShop.name} was successfully registered.`
       );
 
       await db.addNotification(
         createdShop.id,
         "Welcome to Restockr",
-        `Welcome to Restockr, ${createdShop.name}! Your workspace is active and connected to Supabase backend.`,
+        `Welcome to Restockr, ${createdShop.name}! Your workspace is active and ready to use.`,
         "success"
       );
 
@@ -209,20 +273,22 @@ export default function App() {
       setIsLoggedIn(true);
       setLoginError("");
       setActiveModule("dashboard");
-      syncStates();
+      await syncStates();
     } catch (err: any) {
       setLoginError(`Registration failed: ${err.message || err}`);
+    } finally {
+      setAuthLoading(false);
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
     setIsLoggedIn(false);
     resetQuickActions();
-    setAuthEmail("");
+    setAuthUsername("");
     setAuthPassword("");
     setRegShopName("");
     setRegShopSlug("");
-    setRegEmail("");
     setRegPassword("");
     setRegWhatsApp("");
     setAuthMode("select");
@@ -291,7 +357,7 @@ export default function App() {
               </div>
               <h2 className="font-display font-black text-xl text-white uppercase tracking-tight">Welcome to Restockr</h2>
               <p className="text-xs text-[#B7BCC7] leading-relaxed">
-                Empower your business with a live Supabase production catalog, staff permissions, and integrated WhatsApp assistant.
+                Empower your business with a live production catalog, staff permissions, and integrated WhatsApp assistant.
               </p>
             </div>
 
@@ -322,7 +388,7 @@ export default function App() {
             </div>
 
             <p className="text-[10px] text-[#B7BCC7]/60 leading-normal">
-              Direct connection to production Supabase PostgreSQL backend.
+              Secure access to your store management workspace.
             </p>
           </div>
         )}
@@ -332,7 +398,7 @@ export default function App() {
             <div className="space-y-1.5 border-b border-[#2A2A2A] pb-4 flex justify-between items-start">
               <div>
                 <h2 className="font-display font-black text-xl text-white uppercase tracking-tight">Sign In</h2>
-                <p className="text-xs text-[#B7BCC7]">Enter your registered owner credentials.</p>
+                <p className="text-xs text-[#B7BCC7]">Enter your shop username and password.</p>
               </div>
               <button
                 onClick={() => {
@@ -355,14 +421,14 @@ export default function App() {
             <form onSubmit={handleLoginSubmit} className="space-y-4">
               <div className="space-y-1.5">
                 <label className="text-[10px] font-mono font-bold text-[#B7BCC7] uppercase tracking-wider block">
-                  Owner Email Address
+                  Shop Username
                 </label>
                 <input
-                  type="email"
+                  type="text"
                   required
-                  placeholder="owner@gadgetstore.com"
-                  value={authEmail}
-                  onChange={(e) => setAuthEmail(e.target.value)}
+                  placeholder="e.g. kanogadgets"
+                  value={authUsername}
+                  onChange={(e) => setAuthUsername(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
                   className="w-full px-3 py-2.5 bg-black border border-[#2A2A2A] rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-teal-500 text-white font-mono"
                 />
               </div>
@@ -384,9 +450,10 @@ export default function App() {
               <button
                 type="submit"
                 id="btn-owner-login"
-                className="w-full py-3.5 bg-gradient-to-b from-[#565656] to-[#3A3A3A] border border-[#555555] text-white rounded-xl text-xs font-bold font-display uppercase tracking-wider hover:scale-[0.98] transition-transform cursor-pointer shadow-lg flex items-center justify-center gap-1.5"
+                disabled={authLoading}
+                className="w-full py-3.5 bg-gradient-to-b from-[#565656] to-[#3A3A3A] border border-[#555555] text-white rounded-xl text-xs font-bold font-display uppercase tracking-wider hover:scale-[0.98] transition-transform cursor-pointer shadow-lg flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Enter Workspace <ArrowUpRight className="w-4 h-4 text-white/60" />
+                {authLoading ? "Signing in..." : "Enter Workspace"} {!authLoading && <ArrowUpRight className="w-4 h-4 text-white/60" />}
               </button>
             </form>
           </div>
@@ -397,7 +464,7 @@ export default function App() {
             <div className="space-y-1.5 border-b border-[#2A2A2A] pb-4 flex justify-between items-start">
               <div>
                 <h2 className="font-display font-black text-xl text-white uppercase tracking-tight">Create New Shop</h2>
-                <p className="text-xs text-[#B7BCC7]">Launch your store on Supabase PostgreSQL.</p>
+                <p className="text-xs text-[#B7BCC7]">Launch your store on Restockr.</p>
               </div>
               <button
                 onClick={() => {
@@ -434,7 +501,7 @@ export default function App() {
 
               <div className="space-y-1.5">
                 <label className="text-[10px] font-mono font-bold text-[#B7BCC7] uppercase tracking-wider block">
-                  Store Link Subdomain
+                  Shop Username
                 </label>
                 <div className="flex items-center bg-black border border-[#2A2A2A] rounded-xl overflow-hidden px-3 focus-within:ring-1 focus-within:ring-teal-500">
                   <input
@@ -447,20 +514,7 @@ export default function App() {
                   />
                   <span className="text-xs text-[#B7BCC7] font-mono">.restockr.app</span>
                 </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-mono font-bold text-[#B7BCC7] uppercase tracking-wider block">
-                  Owner Email Address
-                </label>
-                <input
-                  type="email"
-                  required
-                  placeholder="owner@gadgetstore.com"
-                  value={regEmail}
-                  onChange={(e) => setRegEmail(e.target.value)}
-                  className="w-full px-3 py-2.5 bg-black border border-[#2A2A2A] rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-teal-500 text-white font-mono"
-                />
+                <p className="text-[9px] text-[#B7BCC7]/60">This is your login username and store link.</p>
               </div>
 
               <div className="space-y-1.5">
@@ -495,16 +549,17 @@ export default function App() {
               <button
                 type="submit"
                 id="btn-owner-register"
-                className="w-full py-3.5 bg-gradient-to-b from-[#565656] to-[#3A3A3A] border border-[#555555] text-white rounded-xl text-xs font-bold font-display uppercase tracking-wider hover:scale-[0.98] transition-all cursor-pointer shadow-lg flex items-center justify-center gap-1.5"
+                disabled={authLoading}
+                className="w-full py-3.5 bg-gradient-to-b from-[#565656] to-[#3A3A3A] border border-[#555555] text-white rounded-xl text-xs font-bold font-display uppercase tracking-wider hover:scale-[0.98] transition-all cursor-pointer shadow-lg flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Register & Open Shop <Sparkles className="w-4 h-4 text-white/60" />
+                {authLoading ? "Creating..." : "Register & Open Shop"} {!authLoading && <Sparkles className="w-4 h-4 text-white/60" />}
               </button>
             </form>
           </div>
         )}
 
         <p className="text-[10px] font-mono text-[#B7BCC7]/40 mt-12 uppercase tracking-widest">
-          RESTOCKR v2.0 • Supabase Live Production OS
+          RESTOCKR v2.0 • Store Management OS
         </p>
 
       </div>
@@ -514,7 +569,7 @@ export default function App() {
   if (isLoadingData || !currentShop) {
     return (
       <div className="min-h-screen bg-[#0A0A0A] flex flex-col items-center justify-center text-white font-sans">
-        <p className="text-sm text-[#B7BCC7] animate-pulse font-mono">Connecting to Supabase production workspace...</p>
+        <p className="text-sm text-[#B7BCC7] animate-pulse font-mono">Loading your store workspace...</p>
       </div>
     );
   }

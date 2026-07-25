@@ -241,7 +241,6 @@ export default function InventoryManager({
   const [customStorage, setCustomStorage] = useState<string>("");
   const [formQuantity, setFormQuantity] = useState<number>(1);
   const [formSellingPrice, setFormSellingPrice] = useState<string>("");
-  const [formImei, setFormImei] = useState<string>("");
 
   const [formImages, setFormImages] = useState<string[]>([]);
   const [formVideo, setFormVideo] = useState<string>("");
@@ -336,7 +335,6 @@ export default function InventoryManager({
     setCustomStorage("");
     setFormQuantity(1);
     setFormSellingPrice("");
-    setFormImei("");
     setFormImages([]);
     setFormVideo("");
     
@@ -370,7 +368,6 @@ export default function InventoryManager({
     setCustomStorage("");
     setFormQuantity(product.quantity);
     setFormSellingPrice(product.sellingPrice.toString());
-    setFormImei(product.imei || "");
     setFormImages(product.productImages || []);
     setFormVideo(product.productVideo || "");
     
@@ -1509,25 +1506,6 @@ export default function InventoryManager({
 
               </div>
 
-              {/* 7. IMEI / Serial Number */}
-              <div className="space-y-2">
-                <label className="block text-[10px] font-mono font-bold text-[#B7BCC7] uppercase tracking-wider">
-                  IMEI / Serial Number (Optional)
-                </label>
-                <div className="relative flex items-center bg-[#141414] border border-[#222222] focus-within:border-zinc-600 rounded-xl px-4 py-3 transition-all">
-                  <span className="text-zinc-500 mr-2 shrink-0">
-                    <Key className="w-5 h-5" />
-                  </span>
-                  <input
-                    type="text"
-                    placeholder="Enter 15-digit IMEI or serial number..."
-                    value={formImei}
-                    onChange={(e) => setFormImei(e.target.value)}
-                    className="w-full bg-transparent font-mono text-sm font-semibold text-white focus:outline-none placeholder-zinc-700"
-                  />
-                </div>
-              </div>
-
                            {/* ================= 8. DETAILED DEVICE CONDITION & WARRANTY (COLLAPSIBLE / DURABLE) ================= */}
               <div className="space-y-1 pt-4 border-t border-[#1A1A1A]/80">
                 <span className="text-[10px] font-mono font-bold text-zinc-500 uppercase tracking-widest">CONDITION INFORMATION</span>
@@ -2352,7 +2330,7 @@ export default function InventoryManager({
                     Transaction Notes
                   </label>
                   <textarea
-                    placeholder="Provide serial numbers, IMEI, accessories included or comments..."
+                    placeholder="Provide accessories included or comments..."
                     rows={2}
                     value={sellNotes}
                     onChange={(e) => setSellNotes(e.target.value)}

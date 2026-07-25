@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Shop } from "../types";
-import { Globe, Eye, Video, Image as ImageIcon, Palette, Copy, Check, Save, ExternalLink, Building, ShieldCheck } from "lucide-react";
+import { Globe, Eye, Video, Image as ImageIcon, Palette, Copy, Check, Save, ExternalLink, Building, ShieldCheck, DollarSign } from "lucide-react";
 
 interface WebsiteSettingsProps {
   shop: Shop;
@@ -29,6 +29,7 @@ export default function WebsiteSettings({
 
   // Website configuration states
   const [showSold, setShowSold] = useState(shop.websiteSettings.showSoldProducts);
+  const [showPrices, setShowPrices] = useState(shop.websiteSettings.showPrices);
   const [allowVideo, setAllowVideo] = useState(shop.websiteSettings.enableVideoDownloads);
   const [allowImage, setAllowImage] = useState(shop.websiteSettings.enableImageDownloads);
   const [themeColor, setThemeColor] = useState(shop.websiteSettings.customThemeColor);
@@ -52,6 +53,7 @@ export default function WebsiteSettings({
     // Save Reseller Website Settings
     onSaveSettings({
       showSoldProducts: showSold,
+      showPrices: showPrices,
       enableVideoDownloads: allowVideo,
       enableImageDownloads: allowImage,
       customThemeColor: themeColor
@@ -234,6 +236,27 @@ export default function WebsiteSettings({
                 >
                   <span className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform ${
                     showSold ? "translate-x-5" : "translate-x-0"
+                  }`} />
+                </button>
+              </div>
+
+              {/* Show Prices */}
+              <div className="flex items-center justify-between py-2 border-t border-zinc-900/60">
+                <div className="space-y-0.5">
+                  <p className="font-display font-semibold text-xs text-white flex items-center gap-1.5">
+                    <DollarSign className="w-4 h-4 text-emerald-400" /> Display Selling Prices on Storefront
+                  </p>
+                  <p className="text-[10px] text-zinc-500 max-w-md">Show product prices to resellers on the public catalog. Disable to require WhatsApp contact for pricing.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowPrices(!showPrices)}
+                  className={`w-11 h-6 rounded-full transition-colors relative shrink-0 cursor-pointer ${
+                    showPrices ? "bg-emerald-500" : "bg-zinc-900 border border-zinc-800"
+                  }`}
+                >
+                  <span className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform ${
+                    showPrices ? "translate-x-5" : "translate-x-0"
                   }`} />
                 </button>
               </div>
