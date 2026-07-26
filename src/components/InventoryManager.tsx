@@ -90,6 +90,7 @@ export default function InventoryManager({
 
   // Direct sale from inventory card state
   const [isSellModalOpen, setIsSellModalOpen] = useState(false);
+  const [isProcessingSale, setIsProcessingSale] = useState(false);
   const [selectedSellProduct, setSelectedSellProduct] = useState<Product | null>(null);
   const [sellCustomerName, setSellCustomerName] = useState("");
   const [sellCustomerPhone, setSellCustomerPhone] = useState("");
@@ -121,6 +122,7 @@ export default function InventoryManager({
   const handleSellSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedSellProduct) return;
+    if (isProcessingSale) return;
 
     if (selectedSellProduct.quantity <= 0) {
       alert("This item is sold out and cannot be sold.");
@@ -179,10 +181,12 @@ export default function InventoryManager({
     };
 
     if (onSaveSale) {
+      setIsProcessingSale(true);
       onSaveSale(newSale);
     }
 
     setIsSellModalOpen(false);
+    setIsProcessingSale(false);
     setActiveReceiptSale(newSale); // Display receipt overlay
   };
 
@@ -1823,9 +1827,57 @@ export default function InventoryManager({
 
               {/* 9. Media Upload Section */}
               <div className="space-y-4 pt-4 border-t border-[#1A1A1A]/80">
-                <span className="text-[10px] font-mono font-bold text-zinc-500 uppercase tracking-widest">MEDIA UPLOADS</span>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <span className="text-[10px] font-mono font-bold text-zinc-500 uppercase tracking-widest">MEDIA UPLOAD</span>
+
+                <div className="space-y-3">
+                  <label className="text-[10px] font-mono font-bold text-[#B7BCC7] uppercase tracking-wider">
+                    Choose Media Type
+                  </label>
+
+                  {!formImages.length && !formVideo ? (
+                    <div className="grid grid-cols-2 gap-3">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const input = document.getElementById("media-photo-input");
+                          if (input) input.click();
+                        }}
+                        className="border border-dashed border-[#222] bg-black hover:bg-zinc-950 rounded-xl p-5 text-center transition-colors cursor-pointer flex flex-col items-center gap-2"
+                      >
+                        <ImageIcon className="w-8 h-8 text-zinc-500" />
+                        <p className="text-xs font-semibold text-white">Photos</p>
+                        <p className="text-[9px] text-zinc-500">Multiple allowed</p>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const input = document.getElementById("media-video-input");
+                          if (input) input.click();
+                        }}
+                        className="border border-dashed border-[#222] bg-black hover:bg-zinc-950 rounded-xl p-5 text-center transition-colors cursor-pointer flex flex-col items-center gap-2"
+                      >
+                        <Video className="w-8 h-8 text-zinc-500" />
+                        <p className="text-xs font-semibold text-white">Video</p>
+                        <p className="text-[9px] text-zinc-500">MP4 or MOV</p>
+                      </button>
+                      <input
+                        id="media-photo-input"
+                        type="file"
+                        multiple
+                        accept="image/*"
+                        onChange={handleImageUpload}
+                        className="hidden"
+                      />
+                      <input
+                        id="media-video-input"
+                        type="file"
+                        accept="video/*"
+                        onChange={handleVideoUpload}
+                        className="hidden"
+                      />
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {/* Photos upload box */}
                   <div className="space-y-3">
                     <div className="flex justify-between items-center">
@@ -1992,6 +2044,8 @@ export default function InventoryManager({
                       </div>
                     )}
                   </div>
+                    </div>
+                  )}
                 </div>
 
               </div>
@@ -2014,9 +2068,10 @@ export default function InventoryManager({
                   <button
                     type="submit"
                     id="btn-save-stock-item"
-                    className="px-6 py-3 bg-white text-black hover:bg-zinc-200 rounded-xl text-xs font-bold font-display uppercase tracking-wider transition-all cursor-pointer flex items-center gap-2 shadow-lg"
+                    disabled={isSavingMedia}
+                    className="px-6 py-3 bg-white text-black hover:bg-zinc-200 rounded-xl text-xs font-bold font-display uppercase tracking-wider transition-all cursor-pointer flex items-center gap-2 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    <Save className="w-4 h-4" /> Save Product
+                    <Save className="w-4 h-4" /> {isSavingMedia ? "Saving..." : "Save Product"}
                   </button>
                 )}
               </div>
@@ -2351,9 +2406,10 @@ export default function InventoryManager({
                 </button>
                 <button
                   type="submit"
-                  className="px-6 py-3.5 bg-emerald-500 hover:bg-emerald-600 text-black font-extrabold rounded-xl text-xs uppercase tracking-wider cursor-pointer transition-colors flex items-center gap-1.5 shadow-lg shadow-emerald-500/10"
+                  disabled={isProcessingSale}
+                  className="px-6 py-3.5 bg-emerald-500 hover:bg-emerald-600 text-black font-extrabold rounded-xl text-xs uppercase tracking-wider cursor-pointer transition-colors flex items-center gap-1.5 shadow-lg shadow-emerald-500/10 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Confirm Checkout & Reduce Stock
+                  {isProcessingSale ? "Processing..." : "Confirm Checkout & Reduce Stock"}
                 </button>
               </div>
 
