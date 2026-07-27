@@ -17,6 +17,7 @@ export default function CustomerManager({
 
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   // Form Fields
   const [formName, setFormName] = useState("");
@@ -48,7 +49,7 @@ export default function CustomerManager({
     setIsModalOpen(true);
   };
 
-  const handleFormSubmit = (e: React.FormEvent) => {
+  const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formName.trim() || !formPhone.trim()) {
       alert("Name and Phone number are required.");
@@ -65,9 +66,14 @@ export default function CustomerManager({
       notes: formNotes
     };
 
-    onSaveCustomer(customerData);
-    setIsModalOpen(false);
-    resetForm();
+    setIsSaving(true);
+    try {
+      onSaveCustomer(customerData);
+      setIsModalOpen(false);
+      resetForm();
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const filteredCustomers = customers.filter(c => {
@@ -344,9 +350,10 @@ export default function CustomerManager({
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-[#00C896] text-[#0F1115] hover:bg-[#00b084] rounded-xl text-xs font-bold font-display uppercase tracking-wider flex items-center gap-1 transition-all"
+                  disabled={isSaving}
+                  className="px-4 py-2 bg-[#00C896] text-[#0F1115] hover:bg-[#00b084] rounded-xl text-xs font-bold font-display uppercase tracking-wider flex items-center gap-1 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <Save className="w-3.5 h-3.5 text-[#0F1115]" /> Save Profile
+                  <Save className="w-3.5 h-3.5 text-[#0F1115]" /> {isSaving ? "Saving..." : "Save Profile"}
                 </button>
               </div>
             </form>

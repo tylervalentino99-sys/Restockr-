@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, lazy, Suspense } from "react";
+import React, { useState, useEffect, useCallback, useRef, lazy, Suspense } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { db, subscribeToDBUpdates } from "./lib/database";
 import { supabase } from "./lib/supabase";
@@ -16,7 +16,7 @@ const SettingsSubscription = lazy(() => import("./components/SettingsSubscriptio
 const WhatsAppEmulator = lazy(() => import("./components/WhatsAppEmulator"));
 const ResellerWebsite = lazy(() => import("./components/ResellerWebsite"));
 
-import { Package, ShoppingCart, Users, FileText, Globe, Key, Bell, Smartphone, LogOut, Check, Sparkles, LayoutDashboard, Settings, Lock, TriangleAlert as AlertTriangle, Menu, X, ArrowUpRight } from "lucide-react";
+import { Package, ShoppingCart, Users, FileText, Globe, Key, Bell, Smartphone, LogOut, Check, Sparkles, LayoutDashboard, Settings, Lock, TriangleAlert as AlertTriangle, Menu, X, ArrowUpRight, CircleAlert as AlertCircle } from "lucide-react";
 
 export default function App() {
   // ----------------------------------------------------
@@ -215,6 +215,18 @@ export default function App() {
       return;
     }
 
+    const pw = regPassword;
+    const pwIssues: string[] = [];
+    if (pw.length < 8) pwIssues.push("at least 8 characters");
+    if (!/[A-Z]/.test(pw)) pwIssues.push("one uppercase letter");
+    if (!/[a-z]/.test(pw)) pwIssues.push("one lowercase letter");
+    if (!/[0-9]/.test(pw)) pwIssues.push("one number");
+    if (!/[^A-Za-z0-9]/.test(pw)) pwIssues.push("one special character");
+    if (pwIssues.length > 0) {
+      setLoginError(`Password is missing: ${pwIssues.join(", ")}.`);
+      return;
+    }
+
     setAuthLoading(true);
     setLoginError("");
 
@@ -283,6 +295,7 @@ export default function App() {
   };
 
   const handleLogout = async () => {
+    setShowLogoutConfirm(false);
     await supabase.auth.signOut();
     setIsLoggedIn(false);
     resetQuickActions();
@@ -309,6 +322,27 @@ export default function App() {
   const [showAddProductWizard, setShowAddProductWizard] = useState(false);
   const [showSellProductWizard, setShowSellProductWizard] = useState(false);
   const [showNotifDropdown, setShowNotifDropdown] = useState(false);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const notifRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
+        setShowNotifDropdown(false);
+      }
+    };
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setShowNotifDropdown(false);
+    };
+    if (showNotifDropdown) {
+      document.addEventListener("mousedown", handleClickOutside);
+      document.addEventListener("keydown", handleEsc);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleEsc);
+    };
+  }, [showNotifDropdown]);
 
   const resetQuickActions = () => {
     setShowAddProductWizard(false);
@@ -532,6 +566,27 @@ export default function App() {
                   onChange={(e) => setRegPassword(e.target.value)}
                   className="w-full px-3 py-2.5 bg-black border border-[#2A2A2A] rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-teal-500 text-white font-mono"
                 />
+                {regPassword.length > 0 && (
+                  <div className="mt-2 space-y-1.5 bg-black/40 border border-[#2A2A2A] rounded-xl p-3">
+                    <p className="text-[9px] font-mono font-bold text-[#B7BCC7] uppercase tracking-wider mb-1.5">Password must contain:</p>
+                    {[
+                      { label: "At least 8 characters", met: regPassword.length >= 8 },
+                      { label: "One uppercase letter", met: /[A-Z]/.test(regPassword) },
+                      { label: "One lowercase letter", met: /[a-z]/.test(regPassword) },
+                      { label: "One number", met: /[0-9]/.test(regPassword) },
+                      { label: "One special character", met: /[^A-Za-z0-9]/.test(regPassword) },
+                    ].map(req => (
+                      <div key={req.label} className="flex items-center gap-2 text-[10px] font-mono">
+                        {req.met ? (
+                          <Check className="w-3 h-3 text-teal-400 shrink-0" />
+                        ) : (
+                          <X className="w-3 h-3 text-[#B7BCC7]/40 shrink-0" />
+                        )}
+                        <span className={req.met ? "text-teal-400" : "text-[#B7BCC7]/60"}>{req.label}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="space-y-1.5">
@@ -608,7 +663,7 @@ export default function App() {
             <span>Store: {currentShop.name}</span>
           </div>
 
-          <div className="relative">
+          <div className="relative" ref={notifRef}>
             <button
               onClick={async () => {
                 setShowNotifDropdown(!showNotifDropdown);
@@ -653,6 +708,12 @@ export default function App() {
                     </div>
                   ))
                 )}
+                <button
+                  onClick={() => setShowNotifDropdown(false)}
+                  className="w-full mt-3 py-2 bg-[#1B1B1B] hover:bg-[#2A2A2A] border border-[#2A2A2A] rounded-xl text-[10px] font-bold font-display uppercase tracking-wider text-[#B7BCC7] hover:text-white transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
               </div>
             )}
           </div>
@@ -668,14 +729,6 @@ export default function App() {
           >
             <Smartphone className="w-4 h-4 shrink-0" />
             <span className="hidden md:inline">WhatsApp Emulator</span>
-          </button>
-
-          <button
-            onClick={handleLogout}
-            className="p-2.5 bg-[#1B1B1B] border border-[#2A2A2A] hover:bg-rose-950/30 text-[#B7BCC7] hover:text-rose-400 rounded-xl cursor-pointer transition-colors"
-            title="Log out of active session"
-          >
-            <LogOut className="w-4.5 h-4.5" />
           </button>
         </div>
       </header>
@@ -798,6 +851,12 @@ export default function App() {
               >
                 <span>View Store Catalog</span> <ArrowUpRight className="w-3.5 h-3.5 text-teal-400" />
               </a>
+              <button
+                onClick={() => setShowLogoutConfirm(true)}
+                className="w-full flex items-center justify-center gap-1.5 py-2.5 bg-rose-950/30 hover:bg-rose-950/50 border border-rose-900/50 hover:border-rose-700 rounded-xl text-[10px] font-bold font-display uppercase tracking-wider text-rose-400 hover:text-rose-300 transition-colors cursor-pointer"
+              >
+                <LogOut className="w-3.5 h-3.5" /> Log Out
+              </button>
             </div>
 
           </div>
@@ -826,7 +885,7 @@ export default function App() {
                 exit={{ opacity: 0, y: -10 }}
                 transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
               >
-                <Suspense fallback={<div className="flex items-center justify-center h-64 text-slate-400 text-sm font-mono">Loading module...</div>}>
+                <Suspense fallback={<div className="flex flex-col items-center justify-center h-64 text-slate-400 text-sm font-mono gap-3"><div className="w-6 h-6 border-2 border-teal-500 border-t-transparent rounded-full animate-spin" /><span>Loading module...</span></div>}>
                 {activeModule === "dashboard" && (
                   <DashboardOverview
                     products={products}
@@ -987,6 +1046,38 @@ export default function App() {
         )}
 
       </div>
+
+      {/* LOGOUT CONFIRMATION DIALOG */}
+      {showLogoutConfirm && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm animate-fade-in" onClick={() => setShowLogoutConfirm(false)}>
+          <div className="bg-[#1B1B1B] border border-[#2A2A2A] rounded-[22px] p-6 max-w-sm w-full mx-4 shadow-2xl animate-scale-up" onClick={(e) => e.stopPropagation()}>
+            <div className="flex flex-col items-center text-center space-y-4">
+              <div className="w-12 h-12 bg-rose-950/40 border border-rose-900 rounded-2xl flex items-center justify-center text-rose-400">
+                <AlertCircle className="w-6 h-6" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="font-display font-black text-lg text-white uppercase tracking-tight">Log out?</h3>
+                <p className="text-xs text-[#B7BCC7] leading-relaxed">Are you sure you want to log out of RESTOCKR?</p>
+              </div>
+              <div className="flex gap-3 w-full pt-2">
+                <button
+                  onClick={() => setShowLogoutConfirm(false)}
+                  className="flex-1 py-3 bg-[#121212] hover:bg-[#2A2A2A] border border-[#2A2A2A] rounded-xl text-xs font-bold font-display uppercase tracking-wider text-white transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleLogout}
+                  className="flex-1 py-3 bg-rose-600 hover:bg-rose-500 rounded-xl text-xs font-bold font-display uppercase tracking-wider text-white transition-colors cursor-pointer"
+                >
+                  Log Out
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

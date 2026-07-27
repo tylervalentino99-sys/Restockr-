@@ -90,6 +90,7 @@ export default function InventoryManager({
 
   // Direct sale from inventory card state
   const [isSellModalOpen, setIsSellModalOpen] = useState(false);
+  const [isProcessingSale, setIsProcessingSale] = useState(false);
   const [selectedSellProduct, setSelectedSellProduct] = useState<Product | null>(null);
   const [sellCustomerName, setSellCustomerName] = useState("");
   const [sellCustomerPhone, setSellCustomerPhone] = useState("");
@@ -121,6 +122,7 @@ export default function InventoryManager({
   const handleSellSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedSellProduct) return;
+    if (isProcessingSale) return;
 
     if (selectedSellProduct.quantity <= 0) {
       alert("This item is sold out and cannot be sold.");
@@ -179,10 +181,12 @@ export default function InventoryManager({
     };
 
     if (onSaveSale) {
+      setIsProcessingSale(true);
       onSaveSale(newSale);
     }
 
     setIsSellModalOpen(false);
+    setIsProcessingSale(false);
     setActiveReceiptSale(newSale); // Display receipt overlay
   };
 
@@ -471,13 +475,53 @@ export default function InventoryManager({
   // Upload loading state
   const [isSavingMedia, setIsSavingMedia] = useState(false);
 
-  const handleVideoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleVideoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     if (file.size > 50 * 1024 * 1024) {
       alert("Video exceeds maximum 50MB size limit.");
+      e.target.value = "";
       return;
+    }
+
+    // Check the actual codec inside the file by reading its binary header.
+    // Browsers report HEVC files as "video/mp4" — the MIME type does not reveal the codec.
+    // We parse the MP4 box structure to find the codec marker (hvc1/hev1 = HEVC, avc1 = H.264).
+    const checkVideoCodec = (f: File): Promise<"h264" | "hevc" | "unknown"> => {
+      return new Promise((resolve) => {
+        const sliceSize = Math.min(f.size, 64 * 1024);
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const buf = reader.result;
+          if (!(buf instanceof ArrayBuffer)) return resolve("unknown");
+          const bytes = new Uint8Array(buf);
+          const text = new TextDecoder().decode(bytes);
+          if (text.includes("hvc1") || text.includes("hev1")) resolve("hevc");
+          else if (text.includes("avc1")) resolve("h264");
+          else resolve("unknown");
+        };
+        reader.onerror = () => resolve("unknown");
+        reader.readAsArrayBuffer(f.slice(0, sliceSize));
+      });
+    };
+
+    const detectedCodec = await checkVideoCodec(file);
+
+    if (detectedCodec === "hevc") {
+      alert(
+        "This video uses HEVC/H.265 encoding (common from iPhone recordings), which browsers cannot play — it will show a black screen with audio only.\n\nPlease convert it to H.264 MP4 before uploading:\n• On iPhone: Settings > Camera > Formats > 'Most Compatible'\n• On computer: Use a free converter like HandBrake (handbrake.fr)\n• Or use an online converter to 'H.264 MP4'"
+      );
+      e.target.value = "";
+      return;
+    }
+
+    // Warn about .mov files even if codec wasn't detected — they often contain HEVC
+    if (detectedCodec === "unknown" && (file.type === "video/quicktime" || /\.mov$/i.test(file.name))) {
+      if (!confirm("MOV files from iPhones often contain HEVC/H.265 video which browsers cannot play (black screen with audio only). Are you sure this video is H.264 encoded?")) {
+        e.target.value = "";
+        return;
+      }
     }
 
     const reader = new FileReader();
@@ -1823,9 +1867,57 @@ export default function InventoryManager({
 
               {/* 9. Media Upload Section */}
               <div className="space-y-4 pt-4 border-t border-[#1A1A1A]/80">
-                <span className="text-[10px] font-mono font-bold text-zinc-500 uppercase tracking-widest">MEDIA UPLOADS</span>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <span className="text-[10px] font-mono font-bold text-zinc-500 uppercase tracking-widest">MEDIA UPLOAD</span>
+
+                <div className="space-y-3">
+                  <label className="text-[10px] font-mono font-bold text-[#B7BCC7] uppercase tracking-wider">
+                    Choose Media Type
+                  </label>
+
+                  {!formImages.length && !formVideo ? (
+                    <div className="grid grid-cols-2 gap-3">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const input = document.getElementById("media-photo-input");
+                          if (input) input.click();
+                        }}
+                        className="border border-dashed border-[#222] bg-black hover:bg-zinc-950 rounded-xl p-5 text-center transition-colors cursor-pointer flex flex-col items-center gap-2"
+                      >
+                        <ImageIcon className="w-8 h-8 text-zinc-500" />
+                        <p className="text-xs font-semibold text-white">Photos</p>
+                        <p className="text-[9px] text-zinc-500">Multiple allowed</p>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const input = document.getElementById("media-video-input");
+                          if (input) input.click();
+                        }}
+                        className="border border-dashed border-[#222] bg-black hover:bg-zinc-950 rounded-xl p-5 text-center transition-colors cursor-pointer flex flex-col items-center gap-2"
+                      >
+                        <Video className="w-8 h-8 text-zinc-500" />
+                        <p className="text-xs font-semibold text-white">Video</p>
+                        <p className="text-[9px] text-zinc-500">MP4 or MOV</p>
+                      </button>
+                      <input
+                        id="media-photo-input"
+                        type="file"
+                        multiple
+                        accept="image/*"
+                        onChange={handleImageUpload}
+                        className="hidden"
+                      />
+                      <input
+                        id="media-video-input"
+                        type="file"
+                        accept="video/*"
+                        onChange={handleVideoUpload}
+                        className="hidden"
+                      />
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {/* Photos upload box */}
                   <div className="space-y-3">
                     <div className="flex justify-between items-center">
@@ -1992,6 +2084,8 @@ export default function InventoryManager({
                       </div>
                     )}
                   </div>
+                    </div>
+                  )}
                 </div>
 
               </div>
@@ -2014,9 +2108,10 @@ export default function InventoryManager({
                   <button
                     type="submit"
                     id="btn-save-stock-item"
-                    className="px-6 py-3 bg-white text-black hover:bg-zinc-200 rounded-xl text-xs font-bold font-display uppercase tracking-wider transition-all cursor-pointer flex items-center gap-2 shadow-lg"
+                    disabled={isSavingMedia}
+                    className="px-6 py-3 bg-white text-black hover:bg-zinc-200 rounded-xl text-xs font-bold font-display uppercase tracking-wider transition-all cursor-pointer flex items-center gap-2 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    <Save className="w-4 h-4" /> Save Product
+                    <Save className="w-4 h-4" /> {isSavingMedia ? "Saving..." : "Save Product"}
                   </button>
                 )}
               </div>
@@ -2351,9 +2446,10 @@ export default function InventoryManager({
                 </button>
                 <button
                   type="submit"
-                  className="px-6 py-3.5 bg-emerald-500 hover:bg-emerald-600 text-black font-extrabold rounded-xl text-xs uppercase tracking-wider cursor-pointer transition-colors flex items-center gap-1.5 shadow-lg shadow-emerald-500/10"
+                  disabled={isProcessingSale}
+                  className="px-6 py-3.5 bg-emerald-500 hover:bg-emerald-600 text-black font-extrabold rounded-xl text-xs uppercase tracking-wider cursor-pointer transition-colors flex items-center gap-1.5 shadow-lg shadow-emerald-500/10 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Confirm Checkout & Reduce Stock
+                  {isProcessingSale ? "Processing..." : "Confirm Checkout & Reduce Stock"}
                 </button>
               </div>
 

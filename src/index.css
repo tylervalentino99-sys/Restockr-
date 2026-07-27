@@ -59,6 +59,40 @@ body {
   font-family: var(--font-sans);
   background-color: #0A0A0A; /* Matte Black */
   color: #FFFFFF; /* High contrast primary text */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Smooth page load — prevents white flash on initial render */
+html {
+  background-color: #0A0A0A;
+}
+
+/* View transition fade — reduces flicker between route changes */
+.view-transition-fade {
+  animation: fadeIn 0.15s ease-out forwards;
+}
+
+/* Prevent layout shift during image load */
+img {
+  background-color: #121212;
+}
+
+/* Smooth skeleton shimmer for loading states */
+.skeleton-shimmer {
+  background: linear-gradient(90deg, #121212 25%, #1B1B1B 50%, #121212 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* Reduce re-render flicker on state updates */
+.smooth-update {
+  transition: opacity 0.15s ease-out;
 }
 
 /* Subtle visual animations */
