@@ -622,7 +622,6 @@ export default function ResellerWebsite({
               autoPlay
               playsInline
               preload="metadata"
-              crossOrigin="anonymous"
               className="w-full h-full object-contain"
               onClick={(e) => e.stopPropagation()}
             />

@@ -475,7 +475,7 @@ export default function InventoryManager({
   // Upload loading state
   const [isSavingMedia, setIsSavingMedia] = useState(false);
 
-  const handleVideoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleVideoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -485,37 +485,40 @@ export default function InventoryManager({
       return;
     }
 
-    // Reject HEVC/H.265 and other codecs browsers cannot decode.
-    // iPhone videos are commonly HEVC in .mov or .mp4 containers.
-    // Chrome/Firefox cannot decode HEVC video frames (audio plays, screen stays black).
-    const isHevc =
-      file.type === "video/hevc" ||
-      file.type.includes("hevc") ||
-      file.type.includes("h265") ||
-      file.type.includes("h.265") ||
-      (file.type === "video/quicktime" && /\.mov$/i.test(file.name));
+    // Check the actual codec inside the file by reading its binary header.
+    // Browsers report HEVC files as "video/mp4" — the MIME type does not reveal the codec.
+    // We parse the MP4 box structure to find the codec marker (hvc1/hev1 = HEVC, avc1 = H.264).
+    const checkVideoCodec = (f: File): Promise<"h264" | "hevc" | "unknown"> => {
+      return new Promise((resolve) => {
+        const sliceSize = Math.min(f.size, 64 * 1024);
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const buf = reader.result;
+          if (!(buf instanceof ArrayBuffer)) return resolve("unknown");
+          const bytes = new Uint8Array(buf);
+          const text = new TextDecoder().decode(bytes);
+          if (text.includes("hvc1") || text.includes("hev1")) resolve("hevc");
+          else if (text.includes("avc1")) resolve("h264");
+          else resolve("unknown");
+        };
+        reader.onerror = () => resolve("unknown");
+        reader.readAsArrayBuffer(f.slice(0, sliceSize));
+      });
+    };
 
-    // Also check via MediaSource.isTypeSupported for common H.265 MIME strings
-    const hevcMimeChecks = [
-      'video/mp4; codecs="hvc1"',
-      'video/mp4; codecs="hev1"',
-      'video/mp4; codecs="hvc1.1.6.L93.B0"',
-    ];
-    const browserCannotDecodeHevc = hevcMimeChecks.some(
-      (m) => typeof MediaSource !== "undefined" && !MediaSource.isTypeSupported(m)
-    );
+    const detectedCodec = await checkVideoCodec(file);
 
-    if (isHevc || (file.type === "video/quicktime" && browserCannotDecodeHevc)) {
+    if (detectedCodec === "hevc") {
       alert(
-        "This video uses HEVC/H.265 encoding (common from iPhone recordings), which browsers cannot play. Please convert it to H.264 MP4 before uploading. You can use the 'Most Compatible' setting in iPhone camera settings, or a free converter like HandBrake."
+        "This video uses HEVC/H.265 encoding (common from iPhone recordings), which browsers cannot play — it will show a black screen with audio only.\n\nPlease convert it to H.264 MP4 before uploading:\n• On iPhone: Settings > Camera > Formats > 'Most Compatible'\n• On computer: Use a free converter like HandBrake (handbrake.fr)\n• Or use an online converter to 'H.264 MP4'"
       );
       e.target.value = "";
       return;
     }
 
-    // Warn about .mov files even if not explicitly HEVC — they often contain HEVC
-    if (file.type === "video/quicktime" || /\.mov$/i.test(file.name)) {
-      if (!confirm("MOV files often contain HEVC/H.265 video which browsers cannot play. If this video was recorded on an iPhone, it may show a black screen with audio only. Continue uploading?")) {
+    // Warn about .mov files even if codec wasn't detected — they often contain HEVC
+    if (detectedCodec === "unknown" && (file.type === "video/quicktime" || /\.mov$/i.test(file.name))) {
+      if (!confirm("MOV files from iPhones often contain HEVC/H.265 video which browsers cannot play (black screen with audio only). Are you sure this video is H.264 encoded?")) {
         e.target.value = "";
         return;
       }
