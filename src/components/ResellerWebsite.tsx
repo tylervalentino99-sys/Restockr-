@@ -53,6 +53,60 @@ export default function ResellerWebsite({
   const [filterPriceMin, setFilterPriceMin] = useState<string>("");
   const [filterPriceMax, setFilterPriceMax] = useState<string>("");
 
+  // Derive filter options from products (hooks must be before any early return)
+  const allBrands = useMemo(() => {
+    const set = new Set<string>();
+    products.forEach(p => set.add(p.brand));
+    return ["All", ...Array.from(set).sort()];
+  }, [products]);
+
+  const allStorages = useMemo(() => {
+    const set = new Set<string>();
+    products.forEach(p => set.add(p.storage));
+    return ["All", ...Array.from(set).sort()];
+  }, [products]);
+
+  const allRams = useMemo(() => {
+    const set = new Set<string>();
+    products.forEach(p => { if (p.ram) set.add(p.ram); });
+    return ["All", ...Array.from(set).sort()];
+  }, [products]);
+
+  const allConditions = useMemo(() => {
+    const set = new Set<string>();
+    products.forEach(p => p.condition?.forEach(c => set.add(c)));
+    return ["All", ...Array.from(set).sort()];
+  }, [products]);
+
+  // Full-screen media navigation
+  const closeFullscreen = () => setFullscreenMedia(null);
+  const nextMedia = () => {
+    if (!fullscreenMedia || !fullscreenMedia.images) return;
+    const nextIdx = ((fullscreenMedia.index || 0) + 1) % fullscreenMedia.images.length;
+    setFullscreenMedia({ ...fullscreenMedia, index: nextIdx, url: fullscreenMedia.images[nextIdx] });
+  };
+  const prevMedia = () => {
+    if (!fullscreenMedia || !fullscreenMedia.images) return;
+    const prevIdx = ((fullscreenMedia.index || 0) - 1 + fullscreenMedia.images.length) % fullscreenMedia.images.length;
+    setFullscreenMedia({ ...fullscreenMedia, index: prevIdx, url: fullscreenMedia.images[prevIdx] });
+  };
+
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeFullscreen();
+      if (e.key === "ArrowRight" && fullscreenMedia?.images) nextMedia();
+      if (e.key === "ArrowLeft" && fullscreenMedia?.images) prevMedia();
+    };
+    if (fullscreenMedia) {
+      document.addEventListener("keydown", handleEsc);
+      document.body.style.overflow = "hidden";
+    }
+    return () => {
+      document.removeEventListener("keydown", handleEsc);
+      document.body.style.overflow = "";
+    };
+  }, [fullscreenMedia]);
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-[#0A0A0A] flex flex-col items-center justify-center text-white">
@@ -132,31 +186,6 @@ export default function ResellerWebsite({
     );
   }
 
-  // Derive filter options from products
-  const allBrands = useMemo(() => {
-    const set = new Set<string>();
-    products.forEach(p => set.add(p.brand));
-    return ["All", ...Array.from(set).sort()];
-  }, [products]);
-
-  const allStorages = useMemo(() => {
-    const set = new Set<string>();
-    products.forEach(p => set.add(p.storage));
-    return ["All", ...Array.from(set).sort()];
-  }, [products]);
-
-  const allRams = useMemo(() => {
-    const set = new Set<string>();
-    products.forEach(p => { if (p.ram) set.add(p.ram); });
-    return ["All", ...Array.from(set).sort()];
-  }, [products]);
-
-  const allConditions = useMemo(() => {
-    const set = new Set<string>();
-    products.forEach(p => p.condition?.forEach(c => set.add(c)));
-    return ["All", ...Array.from(set).sort()];
-  }, [products]);
-
   const isToday = (createdAt?: string) => {
     if (!createdAt) return false;
     const d = new Date(createdAt);
@@ -196,35 +225,6 @@ export default function ResellerWebsite({
   };
 
   const activeFilterCount = [filterBrand, filterStorage, filterRam, filterCondition].filter(f => f !== "All").length + (filterPriceMin ? 1 : 0) + (filterPriceMax ? 1 : 0);
-
-  // Full-screen media navigation
-  const closeFullscreen = () => setFullscreenMedia(null);
-  const nextMedia = () => {
-    if (!fullscreenMedia || !fullscreenMedia.images) return;
-    const nextIdx = ((fullscreenMedia.index || 0) + 1) % fullscreenMedia.images.length;
-    setFullscreenMedia({ ...fullscreenMedia, index: nextIdx, url: fullscreenMedia.images[nextIdx] });
-  };
-  const prevMedia = () => {
-    if (!fullscreenMedia || !fullscreenMedia.images) return;
-    const prevIdx = ((fullscreenMedia.index || 0) - 1 + fullscreenMedia.images.length) % fullscreenMedia.images.length;
-    setFullscreenMedia({ ...fullscreenMedia, index: prevIdx, url: fullscreenMedia.images[prevIdx] });
-  };
-
-  useEffect(() => {
-    const handleEsc = (e: KeyboardEvent) => {
-      if (e.key === "Escape") closeFullscreen();
-      if (e.key === "ArrowRight" && fullscreenMedia?.images) nextMedia();
-      if (e.key === "ArrowLeft" && fullscreenMedia?.images) prevMedia();
-    };
-    if (fullscreenMedia) {
-      document.addEventListener("keydown", handleEsc);
-      document.body.style.overflow = "hidden";
-    }
-    return () => {
-      document.removeEventListener("keydown", handleEsc);
-      document.body.style.overflow = "";
-    };
-  }, [fullscreenMedia]);
 
   const ProductCard = ({ product }: { product: Product; key?: string }) => {
     const hasVideo = Boolean(product.productVideo);
