@@ -481,7 +481,44 @@ export default function InventoryManager({
 
     if (file.size > 50 * 1024 * 1024) {
       alert("Video exceeds maximum 50MB size limit.");
+      e.target.value = "";
       return;
+    }
+
+    // Reject HEVC/H.265 and other codecs browsers cannot decode.
+    // iPhone videos are commonly HEVC in .mov or .mp4 containers.
+    // Chrome/Firefox cannot decode HEVC video frames (audio plays, screen stays black).
+    const isHevc =
+      file.type === "video/hevc" ||
+      file.type.includes("hevc") ||
+      file.type.includes("h265") ||
+      file.type.includes("h.265") ||
+      (file.type === "video/quicktime" && /\.mov$/i.test(file.name));
+
+    // Also check via MediaSource.isTypeSupported for common H.265 MIME strings
+    const hevcMimeChecks = [
+      'video/mp4; codecs="hvc1"',
+      'video/mp4; codecs="hev1"',
+      'video/mp4; codecs="hvc1.1.6.L93.B0"',
+    ];
+    const browserCannotDecodeHevc = hevcMimeChecks.some(
+      (m) => typeof MediaSource !== "undefined" && !MediaSource.isTypeSupported(m)
+    );
+
+    if (isHevc || (file.type === "video/quicktime" && browserCannotDecodeHevc)) {
+      alert(
+        "This video uses HEVC/H.265 encoding (common from iPhone recordings), which browsers cannot play. Please convert it to H.264 MP4 before uploading. You can use the 'Most Compatible' setting in iPhone camera settings, or a free converter like HandBrake."
+      );
+      e.target.value = "";
+      return;
+    }
+
+    // Warn about .mov files even if not explicitly HEVC — they often contain HEVC
+    if (file.type === "video/quicktime" || /\.mov$/i.test(file.name)) {
+      if (!confirm("MOV files often contain HEVC/H.265 video which browsers cannot play. If this video was recorded on an iPhone, it may show a black screen with audio only. Continue uploading?")) {
+        e.target.value = "";
+        return;
+      }
     }
 
     const reader = new FileReader();

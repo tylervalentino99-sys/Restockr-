@@ -620,6 +620,9 @@ export default function ResellerWebsite({
               src={fullscreenMedia.url}
               controls
               autoPlay
+              playsInline
+              preload="metadata"
+              crossOrigin="anonymous"
               className="w-full h-full object-contain"
               onClick={(e) => e.stopPropagation()}
             />

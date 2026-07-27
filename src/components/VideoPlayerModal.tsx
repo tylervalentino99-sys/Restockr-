@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from "react";
-import { X, Play, Pause, Volume2, VolumeX, Maximize, AlertCircle } from "lucide-react";
+import { X, Play, Pause, Volume2, VolumeX, Maximize, CircleAlert as AlertCircle } from "lucide-react";
 
 interface VideoPlayerModalProps {
   isOpen: boolean;
@@ -123,6 +123,8 @@ export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({
                 ref={videoRef}
                 src={videoUrl}
                 playsInline
+                preload="metadata"
+                crossOrigin="anonymous"
                 onTimeUpdate={handleTimeUpdate}
                 onEnded={() => setIsPlaying(false)}
                 onError={() => {
