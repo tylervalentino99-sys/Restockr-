@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Product, Category, Sale, Shop } from "../types";
 import { db } from "../lib/database";
 import { uploadMediaToSupabase, generateAndUploadVideoThumbnail } from "../lib/supabase";
+import { isHevcVideo, transcodeToH264 } from "../lib/videoTranscoder";
 import { DEVICE_DATABASE, CATEGORY_BRANDS, BRAND_DISPLAY_NAMES, WARRANTY_OPTIONS, parseShortenedPriceToNumber, formatShortenedPriceInput, getCategoryQuickTags } from "../lib/deviceDb";
 import { Plus, Search, SlidersHorizontal, Trash2, CreditCard as Edit3, X, Image as ImageIcon, Video, Save, Sparkles, CircleCheck as CheckCircle2, ChevronDown, Package, Layers, Smartphone, HardDrive, CreditCard, Box, Key, Tag, ShieldCheck, ChevronUp, CircleAlert as AlertCircle, FileText, RefreshCw, Play } from "lucide-react";
 import OfficialReceiptModal from "./OfficialReceiptModal";
@@ -474,6 +475,7 @@ export default function InventoryManager({
 
   // Upload loading state
   const [isSavingMedia, setIsSavingMedia] = useState(false);
+  const [transcodeProgress, setTranscodeProgress] = useState<number | null>(null);
 
   const handleVideoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -485,52 +487,45 @@ export default function InventoryManager({
       return;
     }
 
-    // Check the actual codec inside the file by reading its binary header.
-    // Browsers report HEVC files as "video/mp4" — the MIME type does not reveal the codec.
-    // We parse the MP4 box structure to find the codec marker (hvc1/hev1 = HEVC, avc1 = H.264).
-    const checkVideoCodec = (f: File): Promise<"h264" | "hevc" | "unknown"> => {
-      return new Promise((resolve) => {
-        const sliceSize = Math.min(f.size, 64 * 1024);
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          const buf = reader.result;
-          if (!(buf instanceof ArrayBuffer)) return resolve("unknown");
-          const bytes = new Uint8Array(buf);
-          const text = new TextDecoder().decode(bytes);
-          if (text.includes("hvc1") || text.includes("hev1")) resolve("hevc");
-          else if (text.includes("avc1")) resolve("h264");
-          else resolve("unknown");
-        };
-        reader.onerror = () => resolve("unknown");
-        reader.readAsArrayBuffer(f.slice(0, sliceSize));
-      });
-    };
+    try {
+      const hevc = await isHevcVideo(file);
 
-    const detectedCodec = await checkVideoCodec(file);
+      let outputFile: File = file;
 
-    if (detectedCodec === "hevc") {
-      alert(
-        "This video uses HEVC/H.265 encoding (common from iPhone recordings), which browsers cannot play — it will show a black screen with audio only.\n\nPlease convert it to H.264 MP4 before uploading:\n• On iPhone: Settings > Camera > Formats > 'Most Compatible'\n• On computer: Use a free converter like HandBrake (handbrake.fr)\n• Or use an online converter to 'H.264 MP4'"
-      );
+      if (hevc) {
+        const ok = confirm(
+          "This video uses HEVC/H.265 encoding (common from iPhone recordings), which browsers cannot play.\n\nIt will be automatically converted to H.264 MP4 so it plays on all devices. This may take a moment. Continue?"
+        );
+        if (!ok) {
+          e.target.value = "";
+          return;
+        }
+
+        setTranscodeProgress(0);
+        try {
+          outputFile = await transcodeToH264(file, (ratio) => setTranscodeProgress(ratio));
+        } catch (err) {
+          alert(
+            "Could not convert this HEVC video automatically. Please convert it to H.264 MP4 before uploading:\n• On iPhone: Settings > Camera > Formats > 'Most Compatible'\n• On computer: Use a free converter like HandBrake (handbrake.fr)"
+          );
+          e.target.value = "";
+          return;
+        } finally {
+          setTranscodeProgress(null);
+        }
+      }
+
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        if (typeof reader.result === "string") {
+          setFormVideo(reader.result);
+        }
+      };
+      reader.readAsDataURL(outputFile);
+    } catch (err) {
+      alert("Could not process this video file. Please try a different file.");
       e.target.value = "";
-      return;
     }
-
-    // Warn about .mov files even if codec wasn't detected — they often contain HEVC
-    if (detectedCodec === "unknown" && (file.type === "video/quicktime" || /\.mov$/i.test(file.name))) {
-      if (!confirm("MOV files from iPhones often contain HEVC/H.265 video which browsers cannot play (black screen with audio only). Are you sure this video is H.264 encoded?")) {
-        e.target.value = "";
-        return;
-      }
-    }
-
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      if (typeof reader.result === "string") {
-        setFormVideo(reader.result);
-      }
-    };
-    reader.readAsDataURL(file);
   };
 
   // Toggle custom condition quick tag
@@ -2039,10 +2034,10 @@ export default function InventoryManager({
                     ) : (
                       <div className="space-y-2 pt-1">
                         <div className="aspect-video w-full rounded-xl border border-[#222] overflow-hidden bg-black shadow-lg relative group">
-                          <video 
-                            src={formVideo} 
-                            controls 
-                            className="w-full h-full object-cover" 
+                          <video
+                            src={formVideo}
+                            controls
+                            className="w-full h-full object-cover"
                             preload="metadata"
                           />
                           {/* Hover action overlay for Replace & Delete */}
@@ -2080,6 +2075,17 @@ export default function InventoryManager({
                         <div className="flex items-center gap-2 p-2 bg-[#0C0C0C] border border-[#111] rounded-lg text-xs text-zinc-400">
                           <Video className="w-3.5 h-3.5 text-teal-400 shrink-0" />
                           <span className="truncate flex-1 font-mono text-[9px] text-zinc-400">demo_clip_attached.mp4</span>
+                        </div>
+                      </div>
+                    )}
+                    {transcodeProgress !== null && (
+                      <div className="mt-2 p-3 bg-zinc-900 border border-zinc-800 rounded-lg">
+                        <div className="flex items-center gap-2 mb-2">
+                          <RefreshCw className="w-3.5 h-3.5 text-teal-400 animate-spin" />
+                          <span className="text-[10px] font-mono text-zinc-300">Converting HEVC to H.264... {Math.round(transcodeProgress * 100)}%</span>
+                        </div>
+                        <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                          <div className="h-full bg-teal-500 rounded-full transition-all" style={{ width: `${transcodeProgress * 100}%` }} />
                         </div>
                       </div>
                     )}
