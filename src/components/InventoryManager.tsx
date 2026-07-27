@@ -2,7 +2,6 @@ import React, { useState, useEffect } from "react";
 import { Product, Category, Sale, Shop } from "../types";
 import { db } from "../lib/database";
 import { uploadMediaToSupabase, generateAndUploadVideoThumbnail } from "../lib/supabase";
-import { isHevcVideo, transcodeToH264 } from "../lib/videoTranscoder";
 import { DEVICE_DATABASE, CATEGORY_BRANDS, BRAND_DISPLAY_NAMES, WARRANTY_OPTIONS, parseShortenedPriceToNumber, formatShortenedPriceInput, getCategoryQuickTags } from "../lib/deviceDb";
 import { Plus, Search, SlidersHorizontal, Trash2, CreditCard as Edit3, X, Image as ImageIcon, Video, Save, Sparkles, CircleCheck as CheckCircle2, ChevronDown, Package, Layers, Smartphone, HardDrive, CreditCard, Box, Key, Tag, ShieldCheck, ChevronUp, CircleAlert as AlertCircle, FileText, RefreshCw, Play } from "lucide-react";
 import OfficialReceiptModal from "./OfficialReceiptModal";
@@ -91,7 +90,6 @@ export default function InventoryManager({
 
   // Direct sale from inventory card state
   const [isSellModalOpen, setIsSellModalOpen] = useState(false);
-  const [isProcessingSale, setIsProcessingSale] = useState(false);
   const [selectedSellProduct, setSelectedSellProduct] = useState<Product | null>(null);
   const [sellCustomerName, setSellCustomerName] = useState("");
   const [sellCustomerPhone, setSellCustomerPhone] = useState("");
@@ -123,7 +121,6 @@ export default function InventoryManager({
   const handleSellSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedSellProduct) return;
-    if (isProcessingSale) return;
 
     if (selectedSellProduct.quantity <= 0) {
       alert("This item is sold out and cannot be sold.");
@@ -182,12 +179,10 @@ export default function InventoryManager({
     };
 
     if (onSaveSale) {
-      setIsProcessingSale(true);
       onSaveSale(newSale);
     }
 
     setIsSellModalOpen(false);
-    setIsProcessingSale(false);
     setActiveReceiptSale(newSale); // Display receipt overlay
   };
 
@@ -475,57 +470,23 @@ export default function InventoryManager({
 
   // Upload loading state
   const [isSavingMedia, setIsSavingMedia] = useState(false);
-  const [transcodeProgress, setTranscodeProgress] = useState<number | null>(null);
 
-  const handleVideoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleVideoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     if (file.size > 50 * 1024 * 1024) {
       alert("Video exceeds maximum 50MB size limit.");
-      e.target.value = "";
       return;
     }
 
-    try {
-      const hevc = await isHevcVideo(file);
-
-      let outputFile: File = file;
-
-      if (hevc) {
-        const ok = confirm(
-          "This video uses HEVC/H.265 encoding (common from iPhone recordings), which browsers cannot play.\n\nIt will be automatically converted to H.264 MP4 so it plays on all devices. This may take a moment. Continue?"
-        );
-        if (!ok) {
-          e.target.value = "";
-          return;
-        }
-
-        setTranscodeProgress(0);
-        try {
-          outputFile = await transcodeToH264(file, (ratio) => setTranscodeProgress(ratio));
-        } catch (err) {
-          alert(
-            "Could not convert this HEVC video automatically. Please convert it to H.264 MP4 before uploading:\n• On iPhone: Settings > Camera > Formats > 'Most Compatible'\n• On computer: Use a free converter like HandBrake (handbrake.fr)"
-          );
-          e.target.value = "";
-          return;
-        } finally {
-          setTranscodeProgress(null);
-        }
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      if (typeof reader.result === "string") {
+        setFormVideo(reader.result);
       }
-
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        if (typeof reader.result === "string") {
-          setFormVideo(reader.result);
-        }
-      };
-      reader.readAsDataURL(outputFile);
-    } catch (err) {
-      alert("Could not process this video file. Please try a different file.");
-      e.target.value = "";
-    }
+    };
+    reader.readAsDataURL(file);
   };
 
   // Toggle custom condition quick tag
@@ -1862,57 +1823,9 @@ export default function InventoryManager({
 
               {/* 9. Media Upload Section */}
               <div className="space-y-4 pt-4 border-t border-[#1A1A1A]/80">
-                <span className="text-[10px] font-mono font-bold text-zinc-500 uppercase tracking-widest">MEDIA UPLOAD</span>
-
-                <div className="space-y-3">
-                  <label className="text-[10px] font-mono font-bold text-[#B7BCC7] uppercase tracking-wider">
-                    Choose Media Type
-                  </label>
-
-                  {!formImages.length && !formVideo ? (
-                    <div className="grid grid-cols-2 gap-3">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const input = document.getElementById("media-photo-input");
-                          if (input) input.click();
-                        }}
-                        className="border border-dashed border-[#222] bg-black hover:bg-zinc-950 rounded-xl p-5 text-center transition-colors cursor-pointer flex flex-col items-center gap-2"
-                      >
-                        <ImageIcon className="w-8 h-8 text-zinc-500" />
-                        <p className="text-xs font-semibold text-white">Photos</p>
-                        <p className="text-[9px] text-zinc-500">Multiple allowed</p>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const input = document.getElementById("media-video-input");
-                          if (input) input.click();
-                        }}
-                        className="border border-dashed border-[#222] bg-black hover:bg-zinc-950 rounded-xl p-5 text-center transition-colors cursor-pointer flex flex-col items-center gap-2"
-                      >
-                        <Video className="w-8 h-8 text-zinc-500" />
-                        <p className="text-xs font-semibold text-white">Video</p>
-                        <p className="text-[9px] text-zinc-500">MP4 or MOV</p>
-                      </button>
-                      <input
-                        id="media-photo-input"
-                        type="file"
-                        multiple
-                        accept="image/*"
-                        onChange={handleImageUpload}
-                        className="hidden"
-                      />
-                      <input
-                        id="media-video-input"
-                        type="file"
-                        accept="video/*"
-                        onChange={handleVideoUpload}
-                        className="hidden"
-                      />
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <span className="text-[10px] font-mono font-bold text-zinc-500 uppercase tracking-widest">MEDIA UPLOADS</span>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {/* Photos upload box */}
                   <div className="space-y-3">
                     <div className="flex justify-between items-center">
@@ -2034,10 +1947,10 @@ export default function InventoryManager({
                     ) : (
                       <div className="space-y-2 pt-1">
                         <div className="aspect-video w-full rounded-xl border border-[#222] overflow-hidden bg-black shadow-lg relative group">
-                          <video
-                            src={formVideo}
-                            controls
-                            className="w-full h-full object-cover"
+                          <video 
+                            src={formVideo} 
+                            controls 
+                            className="w-full h-full object-cover" 
                             preload="metadata"
                           />
                           {/* Hover action overlay for Replace & Delete */}
@@ -2078,20 +1991,7 @@ export default function InventoryManager({
                         </div>
                       </div>
                     )}
-                    {transcodeProgress !== null && (
-                      <div className="mt-2 p-3 bg-zinc-900 border border-zinc-800 rounded-lg">
-                        <div className="flex items-center gap-2 mb-2">
-                          <RefreshCw className="w-3.5 h-3.5 text-teal-400 animate-spin" />
-                          <span className="text-[10px] font-mono text-zinc-300">Converting HEVC to H.264... {Math.round(transcodeProgress * 100)}%</span>
-                        </div>
-                        <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
-                          <div className="h-full bg-teal-500 rounded-full transition-all" style={{ width: `${transcodeProgress * 100}%` }} />
-                        </div>
-                      </div>
-                    )}
                   </div>
-                    </div>
-                  )}
                 </div>
 
               </div>
@@ -2114,10 +2014,9 @@ export default function InventoryManager({
                   <button
                     type="submit"
                     id="btn-save-stock-item"
-                    disabled={isSavingMedia}
-                    className="px-6 py-3 bg-white text-black hover:bg-zinc-200 rounded-xl text-xs font-bold font-display uppercase tracking-wider transition-all cursor-pointer flex items-center gap-2 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="px-6 py-3 bg-white text-black hover:bg-zinc-200 rounded-xl text-xs font-bold font-display uppercase tracking-wider transition-all cursor-pointer flex items-center gap-2 shadow-lg"
                   >
-                    <Save className="w-4 h-4" /> {isSavingMedia ? "Saving..." : "Save Product"}
+                    <Save className="w-4 h-4" /> Save Product
                   </button>
                 )}
               </div>
@@ -2452,10 +2351,9 @@ export default function InventoryManager({
                 </button>
                 <button
                   type="submit"
-                  disabled={isProcessingSale}
-                  className="px-6 py-3.5 bg-emerald-500 hover:bg-emerald-600 text-black font-extrabold rounded-xl text-xs uppercase tracking-wider cursor-pointer transition-colors flex items-center gap-1.5 shadow-lg shadow-emerald-500/10 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="px-6 py-3.5 bg-emerald-500 hover:bg-emerald-600 text-black font-extrabold rounded-xl text-xs uppercase tracking-wider cursor-pointer transition-colors flex items-center gap-1.5 shadow-lg shadow-emerald-500/10"
                 >
-                  {isProcessingSale ? "Processing..." : "Confirm Checkout & Reduce Stock"}
+                  Confirm Checkout & Reduce Stock
                 </button>
               </div>
 

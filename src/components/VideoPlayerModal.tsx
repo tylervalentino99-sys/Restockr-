@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from "react";
-import { X, Play, Pause, Volume2, VolumeX, Maximize, CircleAlert as AlertCircle } from "lucide-react";
+import { X, Play, Pause, Volume2, VolumeX, Maximize, AlertCircle } from "lucide-react";
 
 interface VideoPlayerModalProps {
   isOpen: boolean;
@@ -21,11 +21,9 @@ export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(1);
   const [hasError, setHasError] = useState(false);
-  const [errorCode, setErrorCode] = useState<number | null>(null);
 
   useEffect(() => {
     setHasError(false);
-    setErrorCode(null);
     if (isOpen && videoRef.current && videoUrl) {
       videoRef.current.currentTime = 0;
       videoRef.current.play().catch(() => setIsPlaying(false));
@@ -116,17 +114,8 @@ export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({
           {hasError ? (
             <div className="flex flex-col items-center justify-center p-8 text-center text-zinc-300 gap-3">
               <AlertCircle className="w-10 h-10 text-amber-400" />
-              {errorCode === MediaError.MEDIA_ERR_DECODE || errorCode === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED ? (
-                <>
-                  <p className="font-mono text-sm font-bold text-white">Unsupported video format.</p>
-                  <p className="text-xs text-zinc-400 max-w-sm">This video was recorded in HEVC/H.265 (common on iPhones), which browsers cannot play. The store owner needs to re-upload it as an H.264 MP4 file.</p>
-                </>
-              ) : (
-                <>
-                  <p className="font-mono text-sm font-bold text-white">Video unavailable.</p>
-                  <p className="text-xs text-zinc-400 max-w-sm">The media clip could not be loaded or is no longer accessible from storage.</p>
-                </>
-              )}
+              <p className="font-mono text-sm font-bold text-white">Video unavailable.</p>
+              <p className="text-xs text-zinc-400 max-w-sm">The media clip could not be loaded or is no longer accessible from storage.</p>
             </div>
           ) : (
             <>
@@ -134,18 +123,9 @@ export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({
                 ref={videoRef}
                 src={videoUrl}
                 playsInline
-                preload="metadata"
                 onTimeUpdate={handleTimeUpdate}
                 onEnded={() => setIsPlaying(false)}
                 onError={() => {
-                  const el = videoRef.current;
-                  if (el?.error) {
-                    // MediaError.code 3 = DECODE_ERR, 4 = SRC_NOT_SUPPORTED
-                    // Both indicate an unplayable codec (typically HEVC/H.265 from iPhone recordings)
-                    if (el.error.code === MediaError.MEDIA_ERR_DECODE || el.error.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED) {
-                      setErrorCode(el.error.code);
-                    }
-                  }
                   setHasError(true);
                   setIsPlaying(false);
                 }}

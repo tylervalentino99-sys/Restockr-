@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Product, Sale, Shop } from "../types";
-import { ShoppingCart, FileText, Eye, Search, X, Printer, Download, RefreshCw, CircleAlert as AlertCircle, TrendingUp, Check, Layers, ArrowUpRight } from "lucide-react";
+import { 
+  ShoppingCart, FileText, Eye, Search, X, Printer, Download, RefreshCw, AlertCircle, TrendingUp, Check, Layers, ArrowUpRight
+} from "lucide-react";
 import OfficialReceiptModal from "./OfficialReceiptModal";
 
 interface SalesManagerProps {
@@ -26,7 +28,6 @@ export default function SalesManager({
 
   // Receipt Modal State
   const [activeReceiptSale, setActiveReceiptSale] = useState<Sale | null>(null);
-  const [reversingSaleId, setReversingSaleId] = useState<string | null>(null);
 
   // Confirmation state for transaction reversal
   const [confirmModal, setConfirmModal] = useState<{
@@ -230,7 +231,7 @@ export default function SalesManager({
                       <Eye className="w-4 h-4 text-[#00C896]" />
                     </button>
                     <button
-                      disabled={sale.status === "Reversed" || reversingSaleId === sale.id || (() => {
+                      disabled={sale.status === "Reversed" || (() => {
                         const saleDate = new Date(sale.createdAt);
                         const now = new Date();
                         const diffTime = Math.abs(now.getTime() - saleDate.getTime());
@@ -238,14 +239,12 @@ export default function SalesManager({
                         return diffDays > 30;
                       })()}
                       onClick={() => {
-                        if (reversingSaleId) return;
-                        setReversingSaleId(sale.id);
                         triggerDeleteConfirm("Transaction", () => {
                           onUndoSale(sale.id, "Owner");
                         }, `Are you sure you want to REVERSE / UNDO sale transaction ${sale.id}? This will immediately restore 1 unit back to stock inventory and log a reversal audit event.`);
                       }}
                       className={`p-3 rounded-xl transition-all flex items-center justify-center shadow-md ${
-                        sale.status === "Reversed" || reversingSaleId === sale.id || (() => {
+                        sale.status === "Reversed" || (() => {
                           const saleDate = new Date(sale.createdAt);
                           const now = new Date();
                           const diffTime = Math.abs(now.getTime() - saleDate.getTime());

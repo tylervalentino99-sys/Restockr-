@@ -1,13 +1,17 @@
 import React, { useState } from "react";
 import { Staff, StaffPermission } from "../types";
-import { Users, Phone, Shield, ShieldCheck, Trash2, CreditCard as Edit3, Save, X, Plus, CircleAlert as AlertCircle, CircleCheck as CheckCircle, ShieldAlert, UserPlus, ToggleLeft, ToggleRight, Briefcase, Calendar } from "lucide-react";
+import { 
+  Users, Phone, Shield, ShieldCheck, Trash2, Edit3, Save, X, Plus, 
+  AlertCircle, CheckCircle, ShieldAlert, UserPlus, ToggleLeft, ToggleRight,
+  Briefcase, Calendar
+} from "lucide-react";
 import { db } from "../lib/database";
 
 interface StaffManagerProps {
   shopId: string;
   staffList: Staff[];
-  onSaveStaff: (member: Staff) => Promise<void>;
-  onDeleteStaff: (id: string) => Promise<void>;
+  onSaveStaff: (member: Staff) => void;
+  onDeleteStaff: (id: string) => void;
 }
 
 const DEFAULT_PERMISSIONS: StaffPermission = {
@@ -108,12 +112,9 @@ export default function StaffManager({
     setTimeout(() => setSuccessNotification(null), 3000);
   };
 
-  const [isSaving, setIsSaving] = useState(false);
-
-  const handleFormSubmit = async (e: React.FormEvent) => {
+  const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setFormError(null);
-    setSuccessNotification(null);
 
     // Strict Validation
     if (!formName.trim()) {
@@ -139,7 +140,7 @@ export default function StaffManager({
       return;
     }
 
-    const generatedId = `staff-${Math.floor(100000 + Math.random() * 900000)}`;
+    const generatedId = `STF-${Math.floor(100000 + Math.random() * 900000)}`;
 
     const staffData: Staff = {
       id: editingStaff?.id || generatedId,
@@ -152,34 +153,27 @@ export default function StaffManager({
       createdAt: editingStaff?.createdAt || new Date().toISOString()
     };
 
-    setIsSaving(true);
-    try {
-      await onSaveStaff(staffData);
-      setIsModalOpen(false);
+    onSaveStaff(staffData);
+    setIsModalOpen(false);
+    
+    // Show success banner feedback
+    setSuccessNotification(`Successfully saved staff member "${staffData.fullName}"!`);
+    setTimeout(() => setSuccessNotification(null), 4000);
 
-      // Show success banner feedback
-      setSuccessNotification(`Successfully saved staff member "${staffData.fullName}"!`);
-      setTimeout(() => setSuccessNotification(null), 4000);
+    // Create persistent notification for owner
+    db.addNotification(
+      staffData.shop_id,
+      editingStaff ? "Staff Profile Updated" : "New Staff Registered",
+      `Staff profile for ${staffData.fullName} (${staffData.phoneNumber}) was successfully ${editingStaff ? "modified" : "created"}.`,
+      "success"
+    );
 
-      // Create persistent notification for owner
-      db.addNotification(
-        staffData.shop_id,
-        editingStaff ? "Staff Profile Updated" : "New Staff Registered",
-        `Staff profile for ${staffData.fullName} (${staffData.phoneNumber}) was successfully ${editingStaff ? "modified" : "created"}.`,
-        "success"
-      );
-
-      // If registering a *new* staff member, show the detailed Success modal!
-      if (!editingStaff) {
-        setCreatedStaff(staffData);
-      }
-
-      resetForm();
-    } catch (err: any) {
-      setFormError(err?.message || "Failed to save staff member. Please try again.");
-    } finally {
-      setIsSaving(false);
+    // If registering a *new* staff member, show the detailed Success modal!
+    if (!editingStaff) {
+      setCreatedStaff(staffData);
     }
+
+    resetForm();
   };
 
   const togglePermission = (key: keyof StaffPermission) => {
@@ -567,11 +561,10 @@ export default function StaffManager({
                 </button>
                 <button
                   type="submit"
-                  disabled={isSaving}
-                  className="px-6 py-2.5 bg-[#00C896] text-[#0F1115] hover:bg-[#00b084] rounded-xl text-xs font-bold font-display uppercase tracking-wider flex items-center gap-1.5 transition-all shadow-lg shadow-[#00C896]/10 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="px-6 py-2.5 bg-[#00C896] text-[#0F1115] hover:bg-[#00b084] rounded-xl text-xs font-bold font-display uppercase tracking-wider flex items-center gap-1.5 transition-all shadow-lg shadow-[#00C896]/10"
                   id="btn-save-staff-submit"
                 >
-                  <Save className="w-4 h-4 text-[#0F1115]" /> {isSaving ? "Saving..." : editingStaff ? "Save Staff" : "Create Staff"}
+                  <Save className="w-4 h-4 text-[#0F1115]" /> {editingStaff ? "Save Staff" : "Create Staff"}
                 </button>
               </div>
 
